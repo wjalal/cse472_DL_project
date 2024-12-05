@@ -3,7 +3,7 @@ import numpy as np
 import statsmodels.api as sm
 import seaborn as sns
 from scipy.stats import norm
-from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from scipy.interpolate import make_interp_spline, interp1d
 import matplotlib.pyplot as plt
 
@@ -23,25 +23,31 @@ def calculate_lowess_yhat_and_agegap(dfres):
     dfres_agegap["AgeGap"] = dfres_agegap["AgeGap"].abs()
     return dfres_agegap
 
+# Function to calculate MAE and R², and annotate the plot
+def plot_with_metrics(data, x_col, y_col, hue_col, title, x_lim):
+    # Calculate MAE and R²
+    mae = mean_absolute_error(data[x_col], data[y_col])
+    r2 = r2_score(data[x_col], data[y_col])
+    
+    # Create scatterplot
+    sns.scatterplot(data=data, x=x_col, y=y_col, hue=hue_col, palette='coolwarm', hue_norm=(-12, 12))
+    plt.xlim(*x_lim)
+    plt.title(f"{title}\nMAE: {mae:.2f}, R²: {r2:.2f}")
+    plt.xlabel(x_col)
+    plt.ylabel(y_col)
+    plt.show()
+
 # For training set
 dfres_train = pd.read_csv("predicted_ages_train.csv", sep=",", index_col=0).reset_index()
 dfres_train = calculate_lowess_yhat_and_agegap(dfres_train)
 
 # Keep only the row with the smallest Age for each SubjectID
 dfres_train = dfres_train.loc[dfres_train.groupby('SubjectID')['Age'].idxmin()]
-
-# Rebuild the index
 dfres_train = dfres_train.reset_index(drop=True)
 
-# Plot the scatterplot for the train set
-toplot = dfres_train.sort_values("Age")
-sns.scatterplot(data=toplot, x="Age", y="Predicted_Age", 
-                hue="AgeGap", palette='coolwarm', hue_norm=(-12, 12))
-plt.xlim(40, 100)
-plt.title("Age gap predictions (Train Set)")
-plt.show()
-
-print(dfres_train)
+# Plot for training set
+plot_with_metrics(dfres_train, x_col="Age", y_col="Predicted_Age", hue_col="AgeGap",
+                  title="Age gap predictions (Train Set)", x_lim=(40, 100))
 
 # For validation set
 dfres_val = pd.read_csv("predicted_ages_val.csv", sep=",", index_col=0).reset_index()
@@ -49,19 +55,11 @@ dfres_val = calculate_lowess_yhat_and_agegap(dfres_val)
 
 # Keep only the row with the smallest Age for each SubjectID
 dfres_val = dfres_val.loc[dfres_val.groupby('SubjectID')['Age'].idxmin()]
-
-# Rebuild the index
 dfres_val = dfres_val.reset_index(drop=True)
 
-# Plot the scatterplot for the validation set
-toplot = dfres_val.sort_values("Age")
-sns.scatterplot(data=toplot, x="Age", y="Predicted_Age", 
-                hue="AgeGap", palette='coolwarm', hue_norm=(-12, 12))
-plt.xlim(50, 100)
-plt.title("Age gap predictions (Validation Set)")
-plt.show()
-
-print(dfres_val)
+# Plot for validation set
+plot_with_metrics(dfres_val, x_col="Age", y_col="Predicted_Age", hue_col="AgeGap",
+                  title="Age gap predictions (Validation Set)", x_lim=(50, 100))
 
 # Swapped Box plot: AgeGap vs Group for the training set
 plt.figure(figsize=(10, 6))

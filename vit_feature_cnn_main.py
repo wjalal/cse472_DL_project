@@ -12,7 +12,9 @@ from torchvision import transforms
 from transformers import ViTFeatureExtractor, ViTModel
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-
+import pickle
+import matplotlib.pyplot as plt
+import sys
 import SimpleITK as sitk
 
 def set_random_seed(seed=69420):
@@ -56,8 +58,8 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # Load the CSV file into a pandas DataFrame
 csv_path = "adni_storage/adni_brainrotnet_metadata.csv"
 df = pd.read_csv(csv_path)
-df = df.sample(n=1000, random_state=69420)
-print (df.shape)
+# df = df.sample(n=1000, random_state=69420)
+print (df)
 # Add a new column 'filepath' with the constructed file paths
 df['filepath'] = df.apply(
     lambda row: f"adni_storage/ADNI_nii_gz_bias_corrected/I{row['ImageID']}_{row['SubjectID']}.stripped.N4.nii.gz",
@@ -81,30 +83,6 @@ transform = transforms.Compose([
 
 # Directory to save processed images and features
 os.makedirs("adni_storage/ADNI_features", exist_ok=True)
-import os
-import numpy as np
-import pandas as pd
-import nibabel as nib
-from tqdm import tqdm
-import torch
-from torchvision import transforms
-from transformers import ViTFeatureExtractor, ViTModel
-from nibabel.orientations import io_orientation, axcodes2ornt, ornt_transform, apply_orientation
-
-# Check if GPU is available
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-# Load the CSV file into a pandas DataFrame
-csv_path = "adni_storage/adni_brainrotnet_metadata.csv"
-df = pd.read_csv(csv_path)
-df = df.sample(n=1000, random_state=69420)  # Sample a subset of data
-print(df.shape)
-
-# Add a new column 'filepath' with the constructed file paths
-df['filepath'] = df.apply(
-    lambda row: f"adni_storage/ADNI_nii_gz_bias_corrected/I{row['ImageID']}_{row['SubjectID']}.stripped.N4.nii.gz",
-    axis=1
-)
 
 # Load pre-trained ViT model
 feature_extractor = ViTFeatureExtractor.from_pretrained("google/vit-base-patch16-224")
@@ -141,6 +119,7 @@ for _, row in tqdm(df.iterrows(), total=len(df), desc="Processing images"):
         features_list.append(features)  # Flatten the features and add to the list
         labels_list.append(row['Age'])  # Add the corresponding age label
     else:
+        # print ("hiii")
         if os.path.exists(filepath):
             try:
                 # Load the NIfTI image
@@ -207,65 +186,12 @@ class ADNIDataset(Dataset):
             torch.tensor(self.age[idx], dtype=torch.float32),
         )
 
-class AgePredictionCNN(nn.Module):
-    def __init__(self, input_shape):
-        super(AgePredictionCNN, self).__init__()
-
-        # Define convolutional layers
-        self.conv1 = nn.Conv2d(1, 1, kernel_size=(10, 60), stride=1)
-        self.conv2 = nn.Conv2d(1, 1, kernel_size=(5, 15), stride=1)
-        self.conv3 = nn.Conv2d(1, 1, kernel_size=(2, 6), stride=1)
-
-        self.flatten = nn.Flatten()
-
-        # Fully connected layers (fc1 dimensions are calculated dynamically)
-        self.fc1 = None  # Placeholder to be initialized dynamically
-        self.fc2 = nn.Linear(512, 128)
-        self.fc3 = nn.Linear(129, 1)  # Adding 1 for the `Sex` input
-
-        self.relu = nn.ReLU()
-        self.initialize_fc1(input_shape)
-
-    def initialize_fc1(self, input_shape):
-        # Create a sample input to pass through the convolutional layers
-        sample_input = torch.zeros(1, *input_shape)
-        x = self.conv1(sample_input)
-        x = self.relu(x)
-        x = self.conv2(x)
-        x = self.relu(x)
-        x = self.conv3(x)
-        x = self.relu(x)
-        flattened_size = x.numel()  # Total number of elements after flattening
-        self.fc1 = nn.Linear(flattened_size, 512)
-
-    def forward(self, x, sex):
-        x = self.conv1(x)
-        x = self.relu(x)
-        x = self.conv2(x)
-        x = self.relu(x)
-        x = self.conv3(x)
-        x = self.relu(x)
-        x = self.flatten(x)
-
-        if self.fc1 is None:
-            raise ValueError("fc1 layer has not been initialized. Call `initialize_fc1` with the input shape.")
-
-        x = self.fc1(x)
-        x = self.relu(x)
-        x = self.fc2(x)
-        x = self.relu(x)
-
-        # Concatenate `Sex` input
-        x = torch.cat((x, sex.unsqueeze(1)), dim=1)
-        x = self.fc3(x)
-
-        return x
 
 # Prepare dataset and dataloaders
 sex_encoded = df['Sex'].apply(lambda x: 0 if x == 'M' else 1).tolist()
 age_list = df['Age'].tolist()
 
-print (features_list)
+# print (features_list)
 print (features_list[0].shape)
 
 # Create Dataset and DataLoader
@@ -274,31 +200,125 @@ train_size = int(0.8 * len(dataset))
 val_size = len(dataset) - train_size
 train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
 
-train_loader = DataLoader(train_dataset, batch_size=1, shuffle=True)
+# Store the indices of the validation dataset
+val_indices = val_dataset.indices
+train_indices = train_dataset.indices
+
+train_loader = DataLoader(train_dataset, batch_size=1, shuffle=False)
 val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False)
+
+
+# Tracking outputs for validation samples
+val_outputs = {}
+train_outputs = {}
 
 # Initialize model, loss, and optimizer
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+###########################################
+# THIS IS WHERE YOU CHOOSE A MODEL TO TEST 
+###########################################
+
+import importlib
+
+# Assuming sys.argv[1] is the module name
+module_name = sys.argv[1]  # Example: "my_model"
+class_name = "AgePredictionCNN"  # The class you want to import
+
+try:
+    # Dynamically import the module
+    module = importlib.import_module(module_name)
+    
+    # Dynamically get the class
+    AgePredictionCNN = getattr(module, class_name)
+    
+    print(f"Successfully imported {class_name} from {module_name}.")
+
+except ImportError:
+    print(f"Module {module_name} could not be imported.")
+except AttributeError:
+    print(f"{class_name} does not exist in {module_name}.")
+
+##############################
+# MODEL IMPORTED DYNAMICALLY
+##############################
+
 model = AgePredictionCNN(features_list[0].shape).to(device)
 criterion = nn.L1Loss()  # MAE Loss
 optimizer = optim.Adam(model.parameters(), lr=0.001)
+best_loss = np.inf  # Initialize the best loss to infinity
+start_epoch = 0
+
+load_saved = sys.argv[2] # "last, "best"
+if load_saved != "none":
+    # Load the checkpoint
+    with open(f"model_dumps/{sys.argv[1]}_{load_saved}_model_with_metadata.pkl", "rb") as f:
+        checkpoint = pickle.load(f)
+
+    # Restore model and optimizer state
+    model.load_state_dict(checkpoint["model_state"])
+    optimizer.load_state_dict(checkpoint["optimizer_state"])
+
+    # Restore RNG states
+    torch.set_rng_state(checkpoint["t_rng_st"])
+    np.random.set_state(checkpoint["n_rng_st"])
+    if torch.cuda.is_available() and checkpoint["cuda_rng_st"] is not None:
+        torch.cuda.set_rng_state_all(checkpoint["cuda_rng_st"])
+
+    # Retrieve metadata
+    start_epoch = checkpoint["epoch"] + 1
+    loaded_loss = checkpoint["loss"]
+
+    print(f"Loaded model from epoch {start_epoch} with best validation loss: {loaded_loss:.4f}")
+
+predicted_ages = None
+# Training loop
+epochs = 200
+
+# Initialize lists to track loss
+filename = sys.argv[1] 
+csv_file = f"model_dumps/{filename}.csv"
+
+# Load existing epoch data if the file exists
+if os.path.exists(csv_file):
+    epoch_data = pd.read_csv(csv_file).to_dict(orient="records")
+    print(f"Loaded existing epoch data from {csv_file}.")
+else:
+    epoch_data = []
+    print("No existing epoch data found. Starting fresh.")
+
+
+# Plot loss vs. epoch and save the figure
+def update_loss_plot(epoch_data, filename):
+    df = pd.DataFrame(epoch_data)
+    df.to_csv(f"model_dumps/{filename}.csv", index=False)  # Save the data to CSV
+    
+    plt.figure(figsize=(8, 6))
+    plt.plot(df['epoch'], df['train_loss'], label="Train Loss", marker="o")
+    plt.plot(df['epoch'], df['val_loss'], label="Validation Loss", marker="o")
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
+    plt.title("Loss vs. Epoch")
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(f"model_dumps/{filename}.png")
+    plt.close()
 
 # Training loop
-epochs = 50
-for epoch in range(epochs):
+for epoch in range(start_epoch, epochs):
     model.train()
     train_loss = 0.0
-    for features, sex, age in train_loader:
-        # print (features.shape)
-        # print (features)
+    predicted_ages = []
+
+    for idx, (features, sex, age) in enumerate(train_loader):
         features = features.unsqueeze(1).to(device)  # Add channel dimension
-        # print (features.shape)
-        # print (features)
         sex = sex.to(device)
         age = age.to(device)
-
         optimizer.zero_grad()
         outputs = model(features, sex)
+        train_outputs[train_indices[idx]] = outputs.item()
+
         loss = criterion(outputs.squeeze(), age)
         loss.backward()
         optimizer.step()
@@ -312,15 +332,91 @@ for epoch in range(epochs):
     model.eval()
     val_loss = 0.0
     with torch.no_grad():
-        for features, sex, age in val_loader:
+        for idx, (features, sex, age) in enumerate(val_loader):
             features = features.unsqueeze(1).to(device)
             sex = sex.to(device)
             age = age.to(device)
 
             outputs = model(features, sex)
             loss = criterion(outputs.squeeze(), age)
-
             val_loss += loss.item()
+
+            # Save the predicted age for the current validation sample
+            val_outputs[val_indices[idx]] = outputs.item()
 
     val_loss /= len(val_loader)
     print(f"Epoch {epoch+1}/{epochs}, Validation Loss: {val_loss:.4f}")
+
+    # Save the last model with metadata
+    print(f"Saving last model...")
+    checkpoint = {
+        "model_state": model.state_dict(),
+        "optimizer_state": optimizer.state_dict(),
+        "epoch": epoch,
+        "loss": val_loss,
+        "t_rng_st": torch.get_rng_state(),
+        "n_rng_st": np.random.get_state(),
+        "cuda_rng_st": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None
+    }
+    with open(f"model_dumps/{sys.argv[1]}_last_model_with_metadata.pkl", "wb") as f:
+        pickle.dump(checkpoint, f)
+    print(f"Last model saved...")
+
+    # Check if validation loss improved
+    if val_loss < best_loss:
+        best_loss = val_loss
+        print(f"Validation loss improved to {best_loss:.4f}. Saving model...")
+        with open(f"model_dumps/{sys.argv[1]}_best_model_with_metadata.pkl", "wb") as f:
+            pickle.dump(checkpoint, f)
+
+    # Save predictions and create DataFrames (same as before)
+    # ...
+
+    # Update epoch data and save the loss plot
+    epoch_data.append({
+        "epoch": epoch + 1,
+        "train_loss": train_loss,
+        "val_loss": val_loss
+    })
+    update_loss_plot(epoch_data, sys.argv[1])
+
+    max_index = max(train_outputs.keys())
+    # Create a DataFrame with NaN for all indices initially
+    df_trn = pd.DataFrame(index=range(max_index + 1), columns=["Predicted_Age"])
+    # Assign the values to their respective indices
+    for index, value in train_outputs.items():
+        df_trn.loc[index, "Predicted_Age"] = value
+    print (df_trn)
+
+    df2 = df.copy()
+    df2['Predicted_Age'] = df_trn['Predicted_Age']
+    train_df = df2.loc[train_outputs.keys()]
+    print (train_df)
+    train_df.to_csv(f"model_dumps/{sys.argv[1]}_predicted_ages_train.csv")
+
+    max_index = max(val_outputs.keys())
+    # Create a DataFrame with NaN for all indices initially
+    df_pred = pd.DataFrame(index=range(max_index + 1), columns=["Predicted_Age"])
+    # Assign the values to their respective indices
+    for index, value in val_outputs.items():
+        df_pred.loc[index, "Predicted_Age"] = value
+    print (df_pred)
+
+    df1 = df.copy()
+    df1['Predicted_Age'] = df_pred['Predicted_Age']
+    test_df = df1.loc[val_outputs.keys()]
+    print (test_df)
+    test_df.to_csv(f"model_dumps/{sys.argv[1]}_predicted_ages_val.csv")
+
+
+    # Check that the predictions have been added to the DataFrame
+    # Plot Age vs. Predicted Age
+    # plt.figure(figsize=(8, 6))
+    # plt.scatter(train_df['Age'], train_df['Predicted_Age'], color='blue', label='Predicted vs Actual')
+    # # plt.plot(test_df['Age'], test_df['Age'], color='red', linestyle='--', label='Perfect Prediction')  # Optional: Line of perfect prediction
+    # plt.xlabel('Age')
+    # plt.ylabel('Predicted Age')
+    # plt.title('Age vs Predicted Age')
+    # plt.legend()
+    # plt.grid(True)
+    # plt.show()
