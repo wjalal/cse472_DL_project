@@ -386,7 +386,7 @@ for epoch in range(start_epoch, epochs):
     # Assign the values to their respective indices
     for index, value in train_outputs.items():
         df_trn.loc[index, "Predicted_Age"] = value
-    print (df_trn)
+    # print (df_trn)
 
     df2 = df.copy()
     df2['Predicted_Age'] = df_trn['Predicted_Age']
@@ -400,12 +400,12 @@ for epoch in range(start_epoch, epochs):
     # Assign the values to their respective indices
     for index, value in val_outputs.items():
         df_pred.loc[index, "Predicted_Age"] = value
-    print (df_pred)
+    # print (df_pred)
 
     df1 = df.copy()
     df1['Predicted_Age'] = df_pred['Predicted_Age']
     test_df = df1.loc[val_outputs.keys()]
-    print (test_df)
+    # print (test_df)
     test_df.to_csv(f"model_dumps/{sys.argv[1]}_predicted_ages_val.csv")
 
 

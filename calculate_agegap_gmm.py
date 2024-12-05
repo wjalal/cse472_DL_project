@@ -6,6 +6,14 @@ from scipy.stats import norm
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from scipy.interpolate import make_interp_spline, interp1d
 import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split
+from sklearn.svm import SVC  # Import SVM
+from sklearn.preprocessing import LabelEncoder
+from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.mixture import GaussianMixture
+from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
+
+
 
 def calculate_lowess_yhat_and_agegap(dfres):
     dfres_agegap = dfres.copy()
@@ -45,10 +53,6 @@ dfres_train = calculate_lowess_yhat_and_agegap(dfres_train)
 dfres_train = dfres_train.loc[dfres_train.groupby('SubjectID')['Age'].idxmin()]
 dfres_train = dfres_train.reset_index(drop=True)
 
-# Plot for training set
-plot_with_metrics(dfres_train, x_col="Age", y_col="Predicted_Age", hue_col="AgeGap",
-                  title="Age gap predictions (Train Set)", x_lim=(40, 100))
-
 # For validation set
 dfres_val = pd.read_csv("model_dumps/cnn_mx_elu_predicted_ages_val.csv", sep=",", index_col=0).reset_index()
 dfres_val = calculate_lowess_yhat_and_agegap(dfres_val)
@@ -57,95 +61,6 @@ dfres_val = calculate_lowess_yhat_and_agegap(dfres_val)
 dfres_val = dfres_val.loc[dfres_val.groupby('SubjectID')['Age'].idxmin()]
 dfres_val = dfres_val.reset_index(drop=True)
 
-# Plot for validation set
-plot_with_metrics(dfres_val, x_col="Age", y_col="Predicted_Age", hue_col="AgeGap",
-                  title="Age gap predictions (Validation Set)", x_lim=(50, 100))
-
-# Swapped Box plot: AgeGap vs Group for the training set
-plt.figure(figsize=(10, 6))
-sns.boxplot(data=dfres_train, x="AgeGap", y="Group", palette='coolwarm')
-plt.title("AgeGap vs Group - Training Set")
-plt.xlabel("AgeGap")
-plt.ylabel("Group")
-plt.show()
-
-# Swapped Box plot: AgeGap vs Group for the validation set
-plt.figure(figsize=(10, 6))
-sns.boxplot(data=dfres_val, x="AgeGap", y="Group", palette='coolwarm')
-plt.title("AgeGap vs Group - Validation Set")
-plt.xlabel("AgeGap")
-plt.ylabel("Group")
-plt.show()
-
-
-
-
-# import pandas as pd
-# from sklearn.model_selection import train_test_split
-# from sklearn.svm import SVC  # Import SVM
-# from sklearn.preprocessing import LabelEncoder
-# from sklearn.metrics import classification_report, confusion_matrix
-# import seaborn as sns
-# import matplotlib.pyplot as plt
-
-# # Step 1: Encode categorical variables (for 'Sex' column)
-# dfres_train['Sex'] = dfres_train['Sex'].map({'M': 0, 'F': 1})
-# dfres_val['Sex'] = dfres_val['Sex'].map({'M': 0, 'F': 1})
-
-# # Step 2: Initialize the LabelEncoder for the target 'Group' column
-# label_encoder = LabelEncoder()
-
-# # Step 3: Fit and transform the 'Group' column for training and validation datasets
-# y_train = label_encoder.fit_transform(dfres_train['Group'])
-# y_val = label_encoder.transform(dfres_val['Group'])
-
-# print(y_train)
-
-# # Step 4: Drop the original 'Group' column and prepare features for training
-# X_train = dfres_train[['AgeGap']]
-# X_val = dfres_val[['AgeGap']]
-
-# print(X_train)
-
-
-# # Step 5: Train the Support Vector Machine (SVM) model
-# svm_model = SVC(kernel='linear')  # You can change the kernel if needed
-# svm_model.fit(X_train, y_train)
-
-# # Step 6: Evaluate the model
-# y_pred = svm_model.predict(X_val)
-
-# # Get class names (mapping the integer-encoded labels back to original categories)
-# class_names = label_encoder.classes_
-
-# print("Classification Report:")
-# print(classification_report(y_val, y_pred, target_names=class_names))
-
-# print("Confusion Matrix:")
-# print(confusion_matrix(y_val, y_pred))
-
-# # Compute confusion matrix
-# conf_matrix = confusion_matrix(y_val, y_pred)
-
-# # Create a heatmap with seaborn
-# plt.figure(figsize=(8, 6))
-# sns.heatmap(conf_matrix, annot=True, fmt='d', cmap='Blues', xticklabels=class_names, yticklabels=class_names)
-# plt.title('Confusion Matrix')
-# plt.xlabel('Predicted Labels')
-# plt.ylabel('True Labels')
-# plt.show()
-
-
-
-
-
-import pandas as pd
-from sklearn.model_selection import train_test_split
-from sklearn.svm import SVC  # Import SVM
-from sklearn.preprocessing import LabelEncoder
-from sklearn.metrics import classification_report, confusion_matrix
-import seaborn as sns
-import matplotlib.pyplot as plt
 
 # Step 1: Encode categorical variables (for 'Sex' column)
 dfres_train['Sex'] = dfres_train['Sex'].map({'M': 0, 'F': 1})
@@ -167,23 +82,23 @@ X_val = dfres_val[['AgeGap']]
 
 print(f"Features for training set:\n{X_train.head()}")
 
-# Step 5: Train the Support Vector Machine (SVM) model
-svm_model = SVC(kernel='linear')  # You can change the kernel if needed
-svm_model.fit(X_train, y_train)
+# Step 5: Train the Gaussian Mixture Model (GMM)
+gmm = GaussianMixture(n_components=2, covariance_type='full', random_state=42)
+gmm.fit(X_train)
 
-# Step 6: Evaluate the model
-y_pred = svm_model.predict(X_val)
+# Step 6: Predict probabilities and classify
+# GMM provides probabilities for each component (class). Choose the class with the highest probability.
+y_pred_prob = gmm.predict_proba(X_val)
+y_pred = np.argmax(y_pred_prob, axis=1)  # Get the class with the highest probability
 
 # Get the class labels (binary: 0 = not AD, 1 = AD)
 class_names = ['Not AD', 'AD']
 
+# Step 7: Evaluate the GMM model
 print("Classification Report:")
 print(classification_report(y_val, y_pred, target_names=class_names))
 
 print("Confusion Matrix:")
-print(confusion_matrix(y_val, y_pred))
-
-# Compute confusion matrix
 conf_matrix = confusion_matrix(y_val, y_pred)
 
 # Create a heatmap with seaborn
@@ -193,3 +108,7 @@ plt.title('Confusion Matrix')
 plt.xlabel('Predicted Labels')
 plt.ylabel('True Labels')
 plt.show()
+
+# Step 8: (Optional) Evaluate overall accuracy
+accuracy = accuracy_score(y_val, y_pred)
+print(f"Accuracy: {accuracy:.2f}")
