@@ -84,7 +84,6 @@ transform = transforms.Compose([
 # Directory to save processed images and features
 os.makedirs("adni_storage/ADNI_features", exist_ok=True)
 
-
 # To store features and labels
 features_list = []
 labels_list = []
@@ -230,12 +229,8 @@ except AttributeError:
 model = AgePredictionCNN(features_list[0].shape).to(device)
 criterion = nn.L1Loss()  # MAE Loss
 optimizer = optim.Adam(model.parameters(), lr=0.001)
-# best_loss = np.inf  # Initialize the best loss to infinity
+best_loss = np.inf  # Initialize the best loss to infinity
 start_epoch = 0
-
-with open(f"model_dumps/{sys.argv[1]}_best_model_with_metadata.pkl", "rb") as f:
-    checkpoint = pickle.load(f)
-best_loss = checkpoint["loss"]
 
 load_saved = sys.argv[2] # "last, "best"
 if load_saved != "none":
@@ -257,11 +252,11 @@ if load_saved != "none":
     start_epoch = checkpoint["epoch"] + 1
     loaded_loss = checkpoint["loss"]
 
-    print(f"Loaded model from epoch {start_epoch} with validation loss {loaded_loss:.4f}, best loss {best_loss:.4f}")
+    print(f"Loaded model from epoch {start_epoch} with best validation loss: {loaded_loss:.4f}")
 
 predicted_ages = None
 # Training loop
-epochs = int(sys.argv[3])
+epochs = 200
 
 # Initialize lists to track loss
 filename = sys.argv[1] 

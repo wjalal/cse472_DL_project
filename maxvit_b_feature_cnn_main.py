@@ -9,9 +9,10 @@ import torch.optim as optim
 from tqdm import tqdm
 from nibabel.orientations import io_orientation, axcodes2ornt, ornt_transform, apply_orientation
 from torchvision import transforms
-from transformers import ViTFeatureExtractor, ViTModel
+# from transformers import ViTFeatureExtractor, ViTModel
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
+import timm
 import pickle
 import matplotlib.pyplot as plt
 import sys
@@ -52,8 +53,7 @@ def resample_volume_to_fixed_slices(data, affine, target_slices=160):
 
     return sitk.GetArrayFromImage(resampled_img)  # Return the resampled image as a numpy array
 
-# Check if GPU is available
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
 # Load the CSV file into a pandas DataFrame
 csv_path = "adni_storage/adni_brainrotnet_metadata.csv"
@@ -67,22 +67,26 @@ df['filepath'] = df.apply(
 )
 
 # Load pre-trained ViT model
-feature_extractor = ViTFeatureExtractor.from_pretrained("google/vit-base-patch16-224")
-model = ViTModel.from_pretrained("google/vit-base-patch16-224")
+# feature_extractor = ViTFeatureExtractor.from_pretrained("pretrained/maxvit_rmlp_base_rw_224.sw_in12k4")
+# Load MaxViT from timm
+model = timm.create_model("hf_hub:timm/maxvit_rmlp_base_rw_224.sw_in12k", pretrained=True, num_classes=0)  # `num_classes=0` for feature extraction
+# Check if GPU is available
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model.to(device)  # Move the model to the GPU (if available)
 model.eval()
 
 # Update image transform for grayscale images to match ViT input requirements
 transform = transforms.Compose([
     transforms.ToPILImage(),
-    transforms.Resize((224, 224)),
+    transforms.Resize((224, 224)),       # MaxViT uses 224x224 input size
     transforms.Lambda(lambda img: img.convert("RGB")),  # Convert to RGB directly
     transforms.ToTensor(),
-    transforms.Normalize(mean=feature_extractor.image_mean, std=feature_extractor.image_std),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406],  # Common normalization for ImageNet models
+                         std=[0.229, 0.224, 0.225]),
 ])
 
 # Directory to save processed images and features
-os.makedirs("adni_storage/ADNI_features", exist_ok=True)
+os.makedirs("adni_storage/ADNI_features/maxvit_b", exist_ok=True)
 
 
 # To store features and labels
@@ -95,7 +99,7 @@ for _, row in tqdm(df.iterrows(), total=len(df), desc="Processing images"):
     image_title = f"{row['ImageID']}_{row['SubjectID']}"
 
     # Check if the feature file already exists
-    feature_file_path = f"adni_storage/ADNI_features/{image_title}_features.npy"
+    feature_file_path = f"adni_storage/ADNI_features/maxvit_b/{image_title}_features.npy"
     if os.path.exists(feature_file_path):
         # If file exists, load the features from the file
         features = np.load(feature_file_path)
@@ -122,18 +126,19 @@ for _, row in tqdm(df.iterrows(), total=len(df), desc="Processing images"):
                 data = resample_volume_to_fixed_slices(data, affine, target_slices=160)
 
                 # Extract features for all sagittal slices
+                # Extract features for all sagittal slices
                 features = []
                 for slice_idx in range(data.shape[0]):
                     slice_data = data[slice_idx, :, :]
                     slice_data = (slice_data - np.min(slice_data)) / (np.max(slice_data) - np.min(slice_data))  # Normalize
 
-                    # Transform slice for ViT input
+                    # Transform slice for MaxViT input
                     slice_tensor = transform(slice_data).unsqueeze(0).to(device)  # Add batch dimension and move to GPU
 
-                    # Extract features using ViT
+                    # Extract features using MaxViT
                     with torch.no_grad():
                         outputs = model(slice_tensor)
-                        slice_features = outputs.last_hidden_state.mean(dim=1).squeeze().cpu().numpy()  # Move output back to CPU
+                        slice_features = outputs.squeeze().cpu().numpy()  # Move output back to CPU
                         features.append(slice_features)
 
                 # Save extracted features
@@ -233,14 +238,14 @@ optimizer = optim.Adam(model.parameters(), lr=0.001)
 # best_loss = np.inf  # Initialize the best loss to infinity
 start_epoch = 0
 
-with open(f"model_dumps/{sys.argv[1]}_best_model_with_metadata.pkl", "rb") as f:
+with open(f"model_dumps/maxvit_b/{sys.argv[1]}_best_model_with_metadata.pkl", "rb") as f:
     checkpoint = pickle.load(f)
 best_loss = checkpoint["loss"]
 
 load_saved = sys.argv[2] # "last, "best"
 if load_saved != "none":
     # Load the checkpoint
-    with open(f"model_dumps/{sys.argv[1]}_{load_saved}_model_with_metadata.pkl", "rb") as f:
+    with open(f"model_dumps/maxvit_b/{sys.argv[1]}_{load_saved}_model_with_metadata.pkl", "rb") as f:
         checkpoint = pickle.load(f)
 
     # Restore model and optimizer state
@@ -265,7 +270,7 @@ epochs = int(sys.argv[3])
 
 # Initialize lists to track loss
 filename = sys.argv[1] 
-csv_file = f"model_dumps/{filename}.csv"
+csv_file = f"model_dumps/maxvit_b/{filename}.csv"
 
 # Load existing epoch data if the file exists
 if os.path.exists(csv_file):
@@ -279,7 +284,7 @@ else:
 # Plot loss vs. epoch and save the figure
 def update_loss_plot(epoch_data, filename):
     df = pd.DataFrame(epoch_data)
-    df.to_csv(f"model_dumps/{filename}.csv", index=False)  # Save the data to CSV
+    df.to_csv(f"model_dumps/maxvit_b/{filename}.csv", index=False)  # Save the data to CSV
     
     plt.figure(figsize=(8, 6))
     plt.plot(df['epoch'], df['train_loss'], label="Train Loss", marker="o")
@@ -289,7 +294,7 @@ def update_loss_plot(epoch_data, filename):
     plt.title("Loss vs. Epoch")
     plt.legend()
     plt.grid(True)
-    plt.savefig(f"model_dumps/{filename}.png")
+    plt.savefig(f"model_dumps/maxvit_b/{filename}.png")
     plt.close()
 
 # Training loop
@@ -345,7 +350,7 @@ for epoch in range(start_epoch, epochs):
         "n_rng_st": np.random.get_state(),
         "cuda_rng_st": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None
     }
-    with open(f"model_dumps/{sys.argv[1]}_last_model_with_metadata.pkl", "wb") as f:
+    with open(f"model_dumps/maxvit_b/{sys.argv[1]}_last_model_with_metadata.pkl", "wb") as f:
         pickle.dump(checkpoint, f)
     print(f"Last model saved...")
 
@@ -353,7 +358,7 @@ for epoch in range(start_epoch, epochs):
     if val_loss < best_loss:
         best_loss = val_loss
         print(f"Validation loss improved to {best_loss:.4f}. Saving model...")
-        with open(f"model_dumps/{sys.argv[1]}_best_model_with_metadata.pkl", "wb") as f:
+        with open(f"model_dumps/maxvit_b/{sys.argv[1]}_best_model_with_metadata.pkl", "wb") as f:
             pickle.dump(checkpoint, f)
 
     # Save predictions and create DataFrames (same as before)
@@ -379,7 +384,7 @@ for epoch in range(start_epoch, epochs):
     df2['Predicted_Age'] = df_trn['Predicted_Age']
     train_df = df2.loc[train_outputs.keys()]
     # print (train_df)
-    train_df.to_csv(f"model_dumps/{sys.argv[1]}_predicted_ages_train.csv")
+    train_df.to_csv(f"model_dumps/maxvit_b/{sys.argv[1]}_predicted_ages_train.csv")
 
     max_index = max(val_outputs.keys())
     # Create a DataFrame with NaN for all indices initially
@@ -393,7 +398,7 @@ for epoch in range(start_epoch, epochs):
     df1['Predicted_Age'] = df_pred['Predicted_Age']
     test_df = df1.loc[val_outputs.keys()]
     # print (test_df)
-    test_df.to_csv(f"model_dumps/{sys.argv[1]}_predicted_ages_val.csv")
+    test_df.to_csv(f"model_dumps/maxvit_b/{sys.argv[1]}_predicted_ages_val.csv")
 
 
     # Check that the predictions have been added to the DataFrame

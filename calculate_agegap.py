@@ -20,7 +20,7 @@ def calculate_lowess_yhat_and_agegap(dfres):
         print("Could not predict lowess yhat in " + str(len(dfres_agegap.loc[dfres_agegap.yhat_lowess.isna()])) + " samples")
         dfres_agegap = dfres_agegap.dropna(subset="yhat_lowess")
     dfres_agegap["AgeGap"] = dfres_agegap["Predicted_Age"] - dfres_agegap["yhat_lowess"]
-    dfres_agegap["AgeGap"] = dfres_agegap["AgeGap"].abs()
+    # dfres_agegap["AgeGap"] = dfres_agegap["AgeGap"].abs()
     return dfres_agegap
 
 # Function to calculate MAE and R², and annotate the plot
@@ -38,24 +38,24 @@ def plot_with_metrics(data, x_col, y_col, hue_col, title, x_lim):
     plt.show()
 
 # For training set
-dfres_train = pd.read_csv("predicted_ages_train.csv", sep=",", index_col=0).reset_index()
+dfres_train = pd.read_csv("model_dumps/cnn_mx_prelu_predicted_ages_train.csv", sep=",", index_col=0).reset_index()
 dfres_train = calculate_lowess_yhat_and_agegap(dfres_train)
 
-# Keep only the row with the smallest Age for each SubjectID
-dfres_train = dfres_train.loc[dfres_train.groupby('SubjectID')['Age'].idxmin()]
-dfres_train = dfres_train.reset_index(drop=True)
+# # Keep only the row with the smallest Age for each SubjectID
+# dfres_train = dfres_train.loc[dfres_train.groupby('SubjectID')['Age'].idxmin()]
+# dfres_train = dfres_train.reset_index(drop=True)
 
 # Plot for training set
 plot_with_metrics(dfres_train, x_col="Age", y_col="Predicted_Age", hue_col="AgeGap",
                   title="Age gap predictions (Train Set)", x_lim=(40, 100))
 
 # For validation set
-dfres_val = pd.read_csv("predicted_ages_val.csv", sep=",", index_col=0).reset_index()
+dfres_val = pd.read_csv("model_dumps/cnn_mx_prelu_predicted_ages_val.csv", sep=",", index_col=0).reset_index()
 dfres_val = calculate_lowess_yhat_and_agegap(dfres_val)
 
-# Keep only the row with the smallest Age for each SubjectID
-dfres_val = dfres_val.loc[dfres_val.groupby('SubjectID')['Age'].idxmin()]
-dfres_val = dfres_val.reset_index(drop=True)
+# # Keep only the row with the smallest Age for each SubjectID
+# dfres_val = dfres_val.loc[dfres_val.groupby('SubjectID')['Age'].idxmin()]
+# dfres_val = dfres_val.reset_index(drop=True)
 
 # Plot for validation set
 plot_with_metrics(dfres_val, x_col="Age", y_col="Predicted_Age", hue_col="AgeGap",
@@ -162,8 +162,8 @@ y_val = dfres_val['Group_binary']
 print(f"Binary labels for training set: {y_train.unique()}")  # To verify the binary classification
 
 # Step 4: Drop the original 'Group' column and prepare features for training
-X_train = dfres_train[['AgeGap']]
-X_val = dfres_val[['AgeGap']]
+X_train = dfres_train[['AgeGap', 'Age']]
+X_val = dfres_val[['AgeGap', 'Age']]
 
 print(f"Features for training set:\n{X_train.head()}")
 
