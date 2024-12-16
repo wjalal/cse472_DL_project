@@ -1,4 +1,13 @@
 adni_storage/
+abide_storage/
+cobre_storage/
+corr_storage/
+dlbs_storage/
+fcon1000_storage/
+ixi_storage/
+oasis1_storage/
+sald_storage/
 ants/
 model_dumps/
 pretrained/
+medvit/

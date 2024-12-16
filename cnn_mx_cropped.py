@@ -1,21 +1,21 @@
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset
-
 
 class AgePredictionCNN(nn.Module):
     def __init__(self, input_shape):
         super(AgePredictionCNN, self).__init__()
 
         # Define convolutional and pooling layers
-        self.conv1 = nn.Conv2d(1, 1, kernel_size=(10, 60), stride=1)
+        self.conv1 = nn.Conv2d(1, 1, kernel_size=(5, 60), stride=1)
         self.pool1 = nn.MaxPool2d(kernel_size=2, stride=1)
 
-        self.conv2 = nn.Conv2d(1, 1, kernel_size=(5, 15), stride=1)
+        self.conv2 = nn.Conv2d(1, 1, kernel_size=(3, 15), stride=1)
         self.pool2 = nn.MaxPool2d(kernel_size=2, stride=1)
 
-        self.conv3 = nn.Conv2d(1, 1, kernel_size=(2, 6), stride=1)
+        self.conv3 = nn.Conv2d(1, 1, kernel_size=(1, 6), stride=1)
         self.pool3 = nn.MaxPool2d(kernel_size=2, stride=1)
 
         self.flatten = nn.Flatten()
@@ -23,12 +23,8 @@ class AgePredictionCNN(nn.Module):
         # Fully connected layers (fc1 dimensions are calculated dynamically)
         self.fc1 = None  # Placeholder to be initialized dynamically
         self.fc1_bn = None  # Placeholder for batch normalization after fc1
-        self.self_attention_512 = nn.MultiheadAttention(embed_dim=512, num_heads=8)
-        
         self.fc2 = nn.Linear(512, 128)
         self.fc2_bn = nn.LayerNorm(128)
-        self.self_attention_128 = nn.MultiheadAttention(embed_dim=128, num_heads=4)
-
         self.dropout = nn.Dropout(p=0.1)  # Dropout with 10% probability
         self.fc3 = nn.Linear(129, 1)  # Adding 1 for the `Sex` input
 
@@ -69,23 +65,11 @@ class AgePredictionCNN(nn.Module):
         x = self.fc1(x)
         x = self.fc1_bn(x)  # Apply batch normalization
         x = self.relu(x)
-
-        # # Self-attention for 512-dimensional features
-        # x = x.unsqueeze(0)  # Add sequence dimension for attention
-        # x, _ = self.self_attention_512(x, x, x)
-        # x = x.squeeze(0)  # Remove sequence dimension
-
         x = self.dropout(x)  # Apply dropout
 
         x = self.fc2(x)
         x = self.fc2_bn(x)  # Apply batch normalization
         x = self.relu(x)
-
-        # # Self-attention for 128-dimensional features
-        # x = x.unsqueeze(0)  # Add sequence dimension for attention
-        # x, _ = self.self_attention_128(x, x, x)
-        # x = x.squeeze(0)  # Remove sequence dimension
-
         x = self.dropout(x)  # Apply dropout
 
         # Concatenate `Sex` input
@@ -93,3 +77,4 @@ class AgePredictionCNN(nn.Module):
         x = self.fc3(x)
 
         return x
+

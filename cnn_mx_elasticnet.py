@@ -1,8 +1,8 @@
+from sklearn.linear_model import ElasticNet
 import torch
 import torch.nn as nn
-import torch.optim as optim
-from torch.utils.data import DataLoader, Dataset
-
+import torch.nn.functional as F
+import numpy as np
 
 class AgePredictionCNN(nn.Module):
     def __init__(self, input_shape):
@@ -23,17 +23,15 @@ class AgePredictionCNN(nn.Module):
         # Fully connected layers (fc1 dimensions are calculated dynamically)
         self.fc1 = None  # Placeholder to be initialized dynamically
         self.fc1_bn = None  # Placeholder for batch normalization after fc1
-        self.self_attention_512 = nn.MultiheadAttention(embed_dim=512, num_heads=8)
-        
         self.fc2 = nn.Linear(512, 128)
         self.fc2_bn = nn.LayerNorm(128)
-        self.self_attention_128 = nn.MultiheadAttention(embed_dim=128, num_heads=4)
-
         self.dropout = nn.Dropout(p=0.1)  # Dropout with 10% probability
-        self.fc3 = nn.Linear(129, 1)  # Adding 1 for the `Sex` input
 
         self.relu = nn.ReLU()
         self.initialize_fc1(input_shape)
+
+        # ElasticNet placeholder
+        self.elastic_net = ElasticNet(alpha=1.0, l1_ratio=0.5)
 
     def initialize_fc1(self, input_shape):
         # Create a sample input to pass through the convolutional layers
@@ -69,27 +67,36 @@ class AgePredictionCNN(nn.Module):
         x = self.fc1(x)
         x = self.fc1_bn(x)  # Apply batch normalization
         x = self.relu(x)
-
-        # # Self-attention for 512-dimensional features
-        # x = x.unsqueeze(0)  # Add sequence dimension for attention
-        # x, _ = self.self_attention_512(x, x, x)
-        # x = x.squeeze(0)  # Remove sequence dimension
-
         x = self.dropout(x)  # Apply dropout
 
         x = self.fc2(x)
         x = self.fc2_bn(x)  # Apply batch normalization
         x = self.relu(x)
-
-        # # Self-attention for 128-dimensional features
-        # x = x.unsqueeze(0)  # Add sequence dimension for attention
-        # x, _ = self.self_attention_128(x, x, x)
-        # x = x.squeeze(0)  # Remove sequence dimension
-
         x = self.dropout(x)  # Apply dropout
 
-        # Concatenate `Sex` input
-        x = torch.cat((x, sex.unsqueeze(1)), dim=1)
-        x = self.fc3(x)
+        # Concatenate features with `Sex`
+        features = torch.cat((x, sex.unsqueeze(1)), dim=1)
 
-        return x
+        return features
+
+    def fit_elastic_net(self, dataloader):
+        self.eval()
+        features = []
+        targets = []
+
+        with torch.no_grad():
+            for data, sex, target in dataloader:
+                extracted_features = self.forward(data, sex).cpu().numpy()
+                features.append(extracted_features)
+                targets.append(target.cpu().numpy())
+
+        features = np.vstack(features)
+        targets = np.hstack(targets)
+
+        self.elastic_net.fit(features, targets)
+
+    def predict(self, x, sex):
+        self.eval()
+        with torch.no_grad():
+            features = self.forward(x, sex).cpu().numpy()
+            return self.elastic_net.predict(features)

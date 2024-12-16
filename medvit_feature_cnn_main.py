@@ -57,60 +57,37 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Load the CSV file into a pandas DataFrame
 csv_path = "adni_storage/adni_brainrotnet_metadata.csv"
-df = pd.read_csv(csv_path)
+df = pd.read_csv(csv_path).sample(n=1000)
 # df = df.sample(n=1000, random_state=69420)
 print (df)
 # Add a new column 'filepath' with the constructed file paths
 df['filepath'] = df.apply(
-    lambda row: f"adni_storage/ADNI_nii_gz_bias_corrected/I{row['ImageID']}_{row['SubjectID']}.stripped.N4.nii.gz",
+    lambda row: f"adni_storage/ADNI_nii_gz_bias_corrected/I{row['ImageID'][4:]}_{row['SubjectID']}.stripped.N4.nii.gz",
     axis=1
 )
-from torchvision import transforms
-import torch
-import torch.nn as nn
-import numpy as np
-import os
-from tqdm import tqdm
-import nibabel as nib
-from nibabel.orientations import io_orientation, axcodes2ornt, ornt_transform, apply_orientation
 
-# Define the feature extractor manually based on your local pre-trained model's training setup
-class MedViTFeatureExtractor:
-    def __init__(self):
-        # Define mean and std from the local model training setup
-        self.image_mean = [0.5, 0.5, 0.5]  # Update with actual values if different
-        self.image_std = [0.5, 0.5, 0.5]   # Update with actual values if different
+from medvit.MedViT import MedViT_small
 
-    @staticmethod
-    def transform():
-        return transforms.Compose([
-            transforms.ToPILImage(),
-            transforms.Resize((224, 224)),
-            transforms.Lambda(lambda img: img.convert("RGB")),  # Convert to RGB directly
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),  # Use local feature extractor's mean and std
-        ])
+# Load pre-trained MedViT model
+ckpt_path = "pretrained/MedViT_small_im1k.pth"  # Update with the correct path
 
-# Load local pre-trained ViT model
-class MedViT(nn.Module):
-    def __init__(self, pretrained_path):
-        super(MedViT, self).__init__()
-        # Define the ViT model architecture
-        self.model = torch.load(pretrained_path, map_location="cpu")['model']
-        self.model.eval()
+model = MedViT_small()
+checkpoint = torch.load(ckpt_path, map_location=device)
+model.load_state_dict(checkpoint['model'])  # Assuming the checkpoint contains 'state_dict'
+model.to(device)
+model.eval()
 
-    def forward(self, x):
-        return self.model(x)
-
-# Initialize model and feature extractor with local weights
-pretrained_path = "pretrained/MedViT_large_im1k.pth"
-model = MedViT(pretrained_path)
-model.to(device)  # Move the model to the GPU (if available)
-feature_extractor = MedViTFeatureExtractor()
-transform = feature_extractor.transform()
+# Transform for MedViT input
+transform = transforms.Compose([
+    transforms.ToPILImage(),
+    transforms.Resize((224, 224)),
+    transforms.Lambda(lambda img: img.convert("RGB")),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),  # Update normalization if MedViT uses different stats
+])
 
 # Directory to save processed images and features
-os.makedirs("adni_storage/ADNI_features/MedViT/", exist_ok=True)
+os.makedirs("adni_storage/ADNI_features", exist_ok=True)
 
 # To store features and labels
 features_list = []
@@ -119,15 +96,16 @@ labels_list = []
 # Process each row in the DataFrame
 for _, row in tqdm(df.iterrows(), total=len(df), desc="Processing images"):
     filepath = row['filepath']
-    image_title = f"{row['ImageID']}_{row['SubjectID']}"
+    image_title = f"{row['ImageID'][4:]}_{row['SubjectID']}"
 
     # Check if the feature file already exists
     feature_file_path = f"adni_storage/ADNI_features/MedViT/{image_title}_features.npy"
     if os.path.exists(feature_file_path):
         # If file exists, load the features from the file
         features = np.load(feature_file_path)
-        features_list.append(features)  # Flatten the features and add to the list
-        labels_list.append(row['Age'])  # Add the corresponding age label
+        print (features.shape)
+        features_list.append(features)
+        labels_list.append(row['Age'])
     else:
         if os.path.exists(filepath):
             try:
@@ -139,12 +117,12 @@ for _, row in tqdm(df.iterrows(), total=len(df), desc="Processing images"):
                 ras_ornt = axcodes2ornt(("R", "A", "S"))
                 ornt_trans = ornt_transform(orig_ornt, ras_ornt)
 
-                data = nii_img.get_fdata()  # Load image data
+                data = nii_img.get_fdata()
                 data = apply_orientation(data, ornt_trans)
 
                 affine = nii_img.affine  # Affine transformation matrix
 
-                # Resample the volume to 160 slices (if required)
+                # Resample the volume to 160 slices
                 data = resample_volume_to_fixed_slices(data, affine, target_slices=160)
 
                 # Extract features for all sagittal slices
@@ -153,49 +131,33 @@ for _, row in tqdm(df.iterrows(), total=len(df), desc="Processing images"):
                     slice_data = data[slice_idx, :, :]
                     slice_data = (slice_data - np.min(slice_data)) / (np.max(slice_data) - np.min(slice_data))  # Normalize
 
-                    # Transform slice for ViT input
+                    # Transform slice for MedViT input
                     slice_tensor = transform(slice_data).unsqueeze(0).to(device)  # Add batch dimension and move to GPU
 
-                    # Extract features using ViT
+                    # Extract features using MedViT
                     with torch.no_grad():
-                        outputs = model(slice_tensor)
-                        slice_features = outputs.mean(dim=1).squeeze().cpu().numpy()  # Move output back to CPU
+                        outputs = model(slice_tensor, return_embeddings=True)
+                        # print(outputs.shape)
+                        slice_features = outputs.squeeze().cpu().numpy()  # Adjust feature extraction as needed
                         features.append(slice_features)
 
                 # Save extracted features
                 features = np.array(features)
+                print (features.shape)
                 np.save(feature_file_path, features)
                 features_list.append(features)
-                labels_list.append(row['Age'])  # Target is 'Age'
+                labels_list.append(row['Age'])
 
             except Exception as e:
                 print(f"Error processing {filepath}: {e}")
         else:
             print(f"File not found: {filepath}")
 
-
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset
-
-# Custom Dataset
-class ADNIDataset(Dataset):
-    def __init__(self, features_list, sex_list, age_list):
-        self.features = features_list
-        self.sex = sex_list
-        self.age = age_list
-
-    def __len__(self):
-        return len(self.features)
-
-    def __getitem__(self, idx):
-        return (
-            torch.tensor(self.features[idx], dtype=torch.float32),
-            torch.tensor(self.sex[idx], dtype=torch.float32),
-            torch.tensor(self.age[idx], dtype=torch.float32),
-        )
-
+from dataset_cls import ADNIDataset
 
 # Prepare dataset and dataloaders
 sex_encoded = df['Sex'].apply(lambda x: 0 if x == 'M' else 1).tolist()
@@ -254,14 +216,20 @@ except AttributeError:
 # MODEL IMPORTED DYNAMICALLY
 ##############################
 
+print (features_list[0].shape)
 model = AgePredictionCNN(features_list[0].shape).to(device)
 criterion = nn.L1Loss()  # MAE Loss
 optimizer = optim.Adam(model.parameters(), lr=0.001)
 best_loss = np.inf  # Initialize the best loss to infinity
 start_epoch = 0
 
+
 load_saved = sys.argv[2] # "last, "best"
 if load_saved != "none":
+
+    with open(f"model_dumps/MedViT/{sys.argv[1]}_best_model_with_metadata.pkl", "rb") as f:
+        checkpoint = pickle.load(f)
+    best_loss = checkpoint["loss"]
     # Load the checkpoint
     with open(f"model_dumps/MedViT/{sys.argv[1]}_{load_saved}_model_with_metadata.pkl", "rb") as f:
         checkpoint = pickle.load(f)
@@ -280,11 +248,11 @@ if load_saved != "none":
     start_epoch = checkpoint["epoch"] + 1
     loaded_loss = checkpoint["loss"]
 
-    print(f"Loaded model from epoch {start_epoch} with best validation loss: {loaded_loss:.4f}")
+    print(f"Loaded model from epoch {start_epoch} with validation loss {loaded_loss:.4f}, best loss {best_loss:.4f}")
 
 predicted_ages = None
 # Training loop
-epochs = 200
+epochs = int(sys.argv[3])
 
 # Initialize lists to track loss
 filename = sys.argv[1] 
@@ -390,33 +358,33 @@ for epoch in range(start_epoch, epochs):
     })
     update_loss_plot(epoch_data, sys.argv[1])
 
-    max_index = max(train_outputs.keys())
-    # Create a DataFrame with NaN for all indices initially
-    df_trn = pd.DataFrame(index=range(max_index + 1), columns=["Predicted_Age"])
-    # Assign the values to their respective indices
-    for index, value in train_outputs.items():
-        df_trn.loc[index, "Predicted_Age"] = value
-    # print (df_trn)
+    # max_index = max(train_outputs.keys())
+    # # Create a DataFrame with NaN for all indices initially
+    # df_trn = pd.DataFrame(index=range(max_index + 1), columns=["Predicted_Age"])
+    # # Assign the values to their respective indices
+    # for index, value in train_outputs.items():
+    #     df_trn.loc[index, "Predicted_Age"] = value
+    # # print (df_trn)
 
-    df2 = df.copy()
-    df2['Predicted_Age'] = df_trn['Predicted_Age']
-    train_df = df2.loc[train_outputs.keys()]
-    # print (train_df)
-    train_df.to_csv(f"model_dumps/MedViT/{sys.argv[1]}_predicted_ages_train.csv")
+    # df2 = df.copy()
+    # df2['Predicted_Age'] = df_trn['Predicted_Age']
+    # train_df = df2.loc[train_outputs.keys()]
+    # # print (train_df)
+    # train_df.to_csv(f"model_dumps/MedViT/{sys.argv[1]}_predicted_ages_train.csv")
 
-    max_index = max(val_outputs.keys())
-    # Create a DataFrame with NaN for all indices initially
-    df_pred = pd.DataFrame(index=range(max_index + 1), columns=["Predicted_Age"])
-    # Assign the values to their respective indices
-    for index, value in val_outputs.items():
-        df_pred.loc[index, "Predicted_Age"] = value
-    # print (df_pred)
+    # max_index = max(val_outputs.keys())
+    # # Create a DataFrame with NaN for all indices initially
+    # df_pred = pd.DataFrame(index=range(max_index + 1), columns=["Predicted_Age"])
+    # # Assign the values to their respective indices
+    # for index, value in val_outputs.items():
+    #     df_pred.loc[index, "Predicted_Age"] = value
+    # # print (df_pred)
 
-    df1 = df.copy()
-    df1['Predicted_Age'] = df_pred['Predicted_Age']
-    test_df = df1.loc[val_outputs.keys()]
-    # print (test_df)
-    test_df.to_csv(f"model_dumps/MedViT/{sys.argv[1]}_predicted_ages_val.csv")
+    # df1 = df.copy()
+    # df1['Predicted_Age'] = df_pred['Predicted_Age']
+    # test_df = df1.loc[val_outputs.keys()]
+    # # print (test_df)
+    # test_df.to_csv(f"model_dumps/MedViT/{sys.argv[1]}_predicted_ages_val.csv")
 
 
     # Check that the predictions have been added to the DataFrame

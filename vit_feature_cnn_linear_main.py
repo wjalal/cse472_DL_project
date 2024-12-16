@@ -209,21 +209,18 @@ except AttributeError:
 # MODEL IMPORTED DYNAMICALLY
 ##############################
 
-print (features_list[0].shape)
 model = AgePredictionCNN(features_list[0].shape).to(device)
 criterion = nn.L1Loss()  # MAE Loss
 optimizer = optim.Adam(model.parameters(), lr=0.001)
-best_loss = np.inf  # Initialize the best loss to infinity
+# best_loss = np.inf  # Initialize the best loss to infinity
 start_epoch = 0
 
+with open(f"model_dumps/{sys.argv[1]}_best_model_with_metadata.pkl", "rb") as f:
+    checkpoint = pickle.load(f)
+best_loss = checkpoint["loss"]
 
 load_saved = sys.argv[2] # "last, "best"
 if load_saved != "none":
-
-    with open(f"model_dumps/{sys.argv[1]}_best_model_with_metadata.pkl", "rb") as f:
-        checkpoint = pickle.load(f)
-    best_loss = checkpoint["loss"]
-
     # Load the checkpoint
     with open(f"model_dumps/{sys.argv[1]}_{load_saved}_model_with_metadata.pkl", "rb") as f:
         checkpoint = pickle.load(f)
@@ -277,11 +274,35 @@ def update_loss_plot(epoch_data, filename):
     plt.savefig(f"model_dumps/{filename}.png")
     plt.close()
 
+from sklearn.linear_model import ElasticNet
+from sklearn.metrics import mean_absolute_error
+
+# Hook to extract features from model.fc3
+features_train = []
+features_val = []
+labels_train = []
+labels_val = []
+
+def hook(module, input, output):
+    if model.training:
+        features_train.append(input[0].detach().cpu().numpy())
+        labels_train.append(input[0].detach().cpu().numpy())
+    else:
+        features_val.append(input[0].detach().cpu().numpy())
+        labels_val.append(input[0].detach().cpu().numpy())
+
+# Register the hook
+model.fc3.register_forward_hook(hook)
+
 # Training loop
 for epoch in range(start_epoch, epochs):
     model.train()
     train_loss = 0.0
     predicted_ages = []
+
+    # Clear feature buffers
+    features_train.clear()
+    labels_train.clear()
 
     for idx, (features, sex, age) in enumerate(train_loader):
         features = features.unsqueeze(1).to(device)  # Add channel dimension
@@ -303,6 +324,9 @@ for epoch in range(start_epoch, epochs):
     # Validation loop
     model.eval()
     val_loss = 0.0
+    features_val.clear()
+    labels_val.clear()
+
     with torch.no_grad():
         for idx, (features, sex, age) in enumerate(val_loader):
             features = features.unsqueeze(1).to(device)
@@ -319,31 +343,40 @@ for epoch in range(start_epoch, epochs):
     val_loss /= len(val_loader)
     print(f"Epoch {epoch+1}/{epochs}, Validation Loss: {val_loss:.4f}")
 
-    # Save the last model with metadata
-    print(f"Saving last model...")
-    checkpoint = {
-        "model_state": model.state_dict(),
-        "optimizer_state": optimizer.state_dict(),
-        "epoch": epoch,
-        "loss": val_loss,
-        "t_rng_st": torch.get_rng_state(),
-        "n_rng_st": np.random.get_state(),
-        "cuda_rng_st": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None
-    }
-    with open(f"model_dumps/{sys.argv[1]}_last_model_with_metadata.pkl", "wb") as f:
-        pickle.dump(checkpoint, f)
-    print(f"Last model saved...")
+    # ElasticNet Training and Validation
+    X_train = np.concatenate(features_train)
+    y_train = np.concatenate(labels_train)
+    X_val = np.concatenate(features_val)
+    y_val = np.concatenate(labels_val)
 
-    # Check if validation loss improved
-    if val_loss < best_loss:
-        best_loss = val_loss
-        print(f"Validation loss improved to {best_loss:.4f}. Saving model...")
-        with open(f"model_dumps/{sys.argv[1]}_best_model_with_metadata.pkl", "wb") as f:
-            pickle.dump(checkpoint, f)
+    elasticnet = ElasticNet(alpha=1.0, l1_ratio=0.5)  # Adjust hyperparameters as needed
+    elasticnet.fit(X_train, y_train)
 
-    # Save predictions and create DataFrames (same as before)
+    # Evaluate ElasticNet on validation set
+    y_pred_train = elasticnet.predict(X_train)
+    y_pred_val = elasticnet.predict(X_val)
+
+    train_mse = mean_absolute_error(y_train, y_pred_train)
+    val_mse = mean_absolute_error(y_val, y_pred_val)
+
+    print(f"ElasticNet - Train MSE: {train_mse:.4f}, Validation MSE: {val_mse:.4f}")
+
+    # Save ElasticNet model and predictions
+    with open(f"model_dumps/{sys.argv[1]}_elasticnet_model_epoch_{epoch+1}.pkl", "wb") as f:
+        pickle.dump(elasticnet, f)
+
+    pd.DataFrame({
+        "True_Age": y_train,
+        "Predicted_Age": y_pred_train
+    }).to_csv(f"model_dumps/{sys.argv[1]}_elasticnet_train_predictions_epoch_{epoch+1}.csv", index=False)
+
+    pd.DataFrame({
+        "True_Age": y_val,
+        "Predicted_Age": y_pred_val
+    }).to_csv(f"model_dumps/{sys.argv[1]}_elasticnet_val_predictions_epoch_{epoch+1}.csv", index=False)
+
+    # Save the last and best model logic remains unchanged
     # ...
-
     # Update epoch data and save the loss plot
     epoch_data.append({
         "epoch": epoch + 1,
@@ -352,33 +385,33 @@ for epoch in range(start_epoch, epochs):
     })
     update_loss_plot(epoch_data, sys.argv[1])
 
-    # max_index = max(train_outputs.keys())
-    # # Create a DataFrame with NaN for all indices initially
-    # df_trn = pd.DataFrame(index=range(max_index + 1), columns=["Predicted_Age"])
-    # # Assign the values to their respective indices
-    # for index, value in train_outputs.items():
-    #     df_trn.loc[index, "Predicted_Age"] = value
-    # # print (df_trn)
+    max_index = max(train_outputs.keys())
+    # Create a DataFrame with NaN for all indices initially
+    df_trn = pd.DataFrame(index=range(max_index + 1), columns=["Predicted_Age"])
+    # Assign the values to their respective indices
+    for index, value in train_outputs.items():
+        df_trn.loc[index, "Predicted_Age"] = value
+    # print (df_trn)
 
-    # df2 = df.copy()
-    # df2['Predicted_Age'] = df_trn['Predicted_Age']
-    # train_df = df2.loc[train_outputs.keys()]
-    # # print (train_df)
-    # train_df.to_csv(f"model_dumps/{sys.argv[1]}_predicted_ages_train.csv")
+    df2 = df.copy()
+    df2['Predicted_Age'] = df_trn['Predicted_Age']
+    train_df = df2.loc[train_outputs.keys()]
+    # print (train_df)
+    train_df.to_csv(f"model_dumps/{sys.argv[1]}_predicted_ages_train.csv")
 
-    # max_index = max(val_outputs.keys())
-    # # Create a DataFrame with NaN for all indices initially
-    # df_pred = pd.DataFrame(index=range(max_index + 1), columns=["Predicted_Age"])
-    # # Assign the values to their respective indices
-    # for index, value in val_outputs.items():
-    #     df_pred.loc[index, "Predicted_Age"] = value
-    # # print (df_pred)
+    max_index = max(val_outputs.keys())
+    # Create a DataFrame with NaN for all indices initially
+    df_pred = pd.DataFrame(index=range(max_index + 1), columns=["Predicted_Age"])
+    # Assign the values to their respective indices
+    for index, value in val_outputs.items():
+        df_pred.loc[index, "Predicted_Age"] = value
+    # print (df_pred)
 
-    # df1 = df.copy()
-    # df1['Predicted_Age'] = df_pred['Predicted_Age']
-    # test_df = df1.loc[val_outputs.keys()]
-    # # print (test_df)
-    # test_df.to_csv(f"model_dumps/{sys.argv[1]}_predicted_ages_val.csv")
+    df1 = df.copy()
+    df1['Predicted_Age'] = df_pred['Predicted_Age']
+    test_df = df1.loc[val_outputs.keys()]
+    # print (test_df)
+    test_df.to_csv(f"model_dumps/{sys.argv[1]}_predicted_ages_val.csv")
 
 
     # Check that the predictions have been added to the DataFrame

@@ -62,7 +62,7 @@ df = pd.read_csv(csv_path)
 print (df)
 # Add a new column 'filepath' with the constructed file paths
 df['filepath'] = df.apply(
-    lambda row: f"adni_storage/ADNI_nii_gz_bias_corrected/I{row['ImageID']}_{row['SubjectID']}.stripped.N4.nii.gz",
+    lambda row: f"adni_storage/ADNI_nii_gz_bias_corrected/I{row['ImageID'][4:]}_{row['SubjectID']}.stripped.N4.nii.gz",
     axis=1
 )
 
@@ -96,7 +96,7 @@ labels_list = []
 # Process each row in the DataFrame
 for _, row in tqdm(df.iterrows(), total=len(df), desc="Processing images"):
     filepath = row['filepath']
-    image_title = f"{row['ImageID']}_{row['SubjectID']}"
+    image_title = f"{row['ImageID'][4:]}_{row['SubjectID']}"
 
     # Check if the feature file already exists
     feature_file_path = f"adni_storage/ADNI_features/maxvit_b/{image_title}_features.npy"
@@ -235,15 +235,17 @@ except AttributeError:
 model = AgePredictionCNN(features_list[0].shape).to(device)
 criterion = nn.L1Loss()  # MAE Loss
 optimizer = optim.Adam(model.parameters(), lr=0.001)
-# best_loss = np.inf  # Initialize the best loss to infinity
+best_loss = np.inf  # Initialize the best loss to infinity
 start_epoch = 0
 
-with open(f"model_dumps/maxvit_b/{sys.argv[1]}_best_model_with_metadata.pkl", "rb") as f:
-    checkpoint = pickle.load(f)
-best_loss = checkpoint["loss"]
 
 load_saved = sys.argv[2] # "last, "best"
 if load_saved != "none":
+
+    with open(f"model_dumps/maxvit_b/{sys.argv[1]}_best_model_with_metadata.pkl", "rb") as f:
+        checkpoint = pickle.load(f)
+    best_loss = checkpoint["loss"]
+
     # Load the checkpoint
     with open(f"model_dumps/maxvit_b/{sys.argv[1]}_{load_saved}_model_with_metadata.pkl", "rb") as f:
         checkpoint = pickle.load(f)
