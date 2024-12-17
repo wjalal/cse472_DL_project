@@ -17,6 +17,8 @@ import matplotlib.pyplot as plt
 import sys
 import SimpleITK as sitk
 from scipy.ndimage import zoom
+from dataset_cls import ADNIDataset, ADNIDatasetViT
+from torch.utils.data import DataLoader, Dataset
 
 def set_random_seed(seed=69420):
     np.random.seed(seed)
@@ -163,22 +165,241 @@ df_oas1 = df_oas1.sort_values(by='Age', ascending=False).reset_index(drop=True).
 
 
 df = pd.concat ([
-                 df_adni[['ImageID', 'Sex', 'Age']], 
-                 df_ixi[['ImageID', 'Sex', 'Age']], 
-                #  df_abide[['ImageID', 'Sex', 'Age']],
-                 df_dlbs[['ImageID', 'Sex', 'Age']],
-                #  df_cobre[['ImageID', 'Sex', 'Age']],
-                 df_fcon[['ImageID', 'Sex', 'Age']],
-                #  df_sald[['ImageID', 'Sex', 'Age']],
-                #  df_corr[['ImageID', 'Sex', 'Age']], 
-                #  df_oas1[['ImageID', 'Sex', 'Age']],
+                 df_adni[['ImageID', 'Sex', 'Age', 'filepath']], 
+                 df_ixi[['ImageID', 'Sex', 'Age', 'filepath']], 
+                #  df_abide[['ImageID', 'Sex', 'Age', 'filepath']],
+                 df_dlbs[['ImageID', 'Sex', 'Age', 'filepath']],
+                #  df_cobre[['ImageID', 'Sex', 'Age', 'filepath']],
+                 df_fcon[['ImageID', 'Sex', 'Age', 'filepath']],
+                #  df_sald[['ImageID', 'Sex', 'Age', 'filepath']],
+                #  df_corr[['ImageID', 'Sex', 'Age', 'filepath']], 
+                #  df_oas1[['ImageID', 'Sex', 'Age', 'filepath']],
                  ], ignore_index=True)
 print (df)
+# Ensure 'Age' is an integer
+df['Age_Group'] = df['Age'].astype(int).apply(lambda x: f"{x:03d}"[:-1] + "0")
+df['Age_Group'] = df['Age_Group'] + df['Sex']
+print (df['Age_Group'].unique())
+# Prepare dataset and dataloaders
+sex_encoded = df['Sex'].apply(lambda x: 0 if x == 'M' else 1).tolist()
+age_list = df['Age'].tolist()
+filepath_list = df['filepath'].tolist()
+label_list = df['Age_Group'].tolist()
 
+# Get unique labels and create a mapping
+unique_labels = sorted(set(label_list))  # Ensure consistent ordering
+label_to_idx = {label: idx for idx, label in enumerate(unique_labels)}
+idx_to_label = {idx: label for label, idx in label_to_idx.items()}  # Reverse mapping for decoding
+
+# Convert labels to integers
+numeric_labels = [label_to_idx[label] for label in label_list]
+label_list = numeric_labels
+
+roi = 160
+
+# Transformation pipeline for ViT
+transform = transforms.Compose([
+    transforms.ToPILImage(),
+    transforms.Resize((224, 224)),
+    transforms.Lambda(lambda img: img.convert("RGB")),  # Convert to RGB
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),  # Normalize for ViT
+])
+
+
+# Function to extract 16 evenly spaced slices
+def extract_slices(volume, num_slices=16):
+    total_slices = volume.shape[0]
+    indices = np.linspace(0, total_slices - 1, num_slices, dtype=int)
+    return volume[indices, :, :]  # Select slices
+
+# # Function to preprocess dataset for ADNIDataset
+# def preprocess_data(df, transform, num_slices=16):
+#     slice_list, age_list, sex_list = [], [], []
+
+#     for _, row in tqdm(df.iterrows(), total=len(df), desc="Processing data"):
+#         filepath = row['filepath']
+#         age_group = int(row['Age_Group'])  # Target label
+#         sex = row.get('Sex', 0)  # Optional, placeholder if not available
+
+#         # Load NIfTI image
+#         nii_img = nib.load(filepath)
+#         data = nii_img.get_fdata()
+
+#         # Normalize and extract slices
+#         data = (data - data.min()) / (data.max() - data.min())
+#         slices = extract_slices(data, num_slices)
+
+#         # Transform each slice
+#         transformed_slices = [transform(slice_data) for slice_data in slices]
+#         stacked_slices = torch.stack(transformed_slices)  # Shape: (16, 3, 224, 224)
+        
+#         # Flatten to create a feature vector for each image
+#         slice_list.append(stacked_slices.flatten().numpy())
+#         age_list.append(age_group)
+#         sex_list.append(sex)  # Add sex data if applicable
+
+#     return features_list, sex_list, age_list
+
+
+# Preprocess data
+# image_list, sex_list, age_list = preprocess_data(df, transform)
+
+# Create ADNIDataset
+vit_dataset = ADNIDatasetViT(filepath_list, label_list)
+
+train_size = int(0.8 * len(vit_dataset))
+val_size = len(vit_dataset) - train_size
+generator = torch.Generator().manual_seed(universal_seed)
+vit_train_dataset, vit_val_dataset = torch.utils.data.random_split(vit_dataset, [train_size, val_size], generator=generator)
+
+print(len(vit_train_dataset))
+
+# DataLoader for training
+vit_train_loader = DataLoader(vit_train_dataset, batch_size=8, shuffle=False)
+
+# Function to preprocess data and dynamically expand slices
+def preprocess_and_expand(dataset, transform, num_slices=16):
+    expanded_images, expanded_labels = [], []
+
+    for filepath, label in tqdm(dataset, desc="Processing Slices"):
+        # Load NIfTI image
+        nii_img = nib.load(filepath)
+        data = nii_img.get_fdata()
+
+        # Normalize and extract slices
+        data = (data - data.min()) / (data.max() - data.min())
+        slices = extract_slices(data, num_slices)
+
+        # Transform each slice and add to dataset
+        for slice_data in slices:
+            transformed_slice = transform(slice_data)  # Transform slice
+            expanded_images.append(transformed_slice)
+            expanded_labels.append(label)
+
+    return expanded_images, expanded_labels
+
+
+# Instantiate Dataset
+vit_dataset = ADNIDatasetViT(filepath_list, label_list)
+
+# Split Dataset
+train_size = int(0.8 * len(vit_dataset))
+val_size = len(vit_dataset) - train_size
+generator = torch.Generator().manual_seed(universal_seed)
+vit_train_dataset, vit_val_dataset = torch.utils.data.random_split(vit_dataset, [train_size, val_size], generator=generator)
+
+# Preprocess and Expand Training Data
+expanded_images, expanded_labels = preprocess_and_expand(vit_train_dataset, transform)
+
+# Create New Dataset with Expanded Data
+class ExpandedDataset(Dataset):
+    def __init__(self, images, labels):
+        self.images = images
+        self.labels = labels
+
+    def __len__(self):
+        return len(self.labels)
+
+    def __getitem__(self, idx):
+        return (
+            self.images[idx],
+            torch.tensor(self.labels[idx], dtype=torch.long),  # Convert to tensors
+        )
+
+
+expanded_train_dataset = ExpandedDataset(expanded_images, expanded_labels)
+
+# DataLoader for Expanded Data
+expanded_train_loader = DataLoader(expanded_train_dataset, batch_size=8, shuffle=True)
+
+# Print Sizes
+print(f"Original Training Dataset Size: {len(vit_train_dataset)}")
+print(f"Expanded Training Dataset Size: {len(expanded_train_dataset)}")
+
+
+from transformers import ViTForImageClassification
+# Load ViT model
+num_classes = df['Age_Group'].nunique()  # Number of unique Age_Groups
+model = ViTForImageClassification.from_pretrained(
+    "google/vit-base-patch16-224",
+    num_labels=num_classes,
+    ignore_mismatched_sizes=True, 
+)
+
+model.to(device)
+
+# Loss function and optimizer
+criterion = nn.CrossEntropyLoss()
+optimizer = optim.AdamW(model.parameters(), lr=1e-4)
+
+# Function to save checkpoint
+def save_checkpoint(epoch, model, optimizer, path="model_dumps/vit_train_checkpoint.pth"):
+    torch.save({
+        'epoch': epoch,
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+    }, path)
+    print(f"Checkpoint saved at epoch {epoch+1}")
+
+# Function to load checkpoint
+def load_checkpoint(path="model_dumps/vit_train_checkpoint.pth"):
+    checkpoint = torch.load(path)
+    model.load_state_dict(checkpoint['model_state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    start_epoch = checkpoint['epoch'] + 1
+    print(f"Checkpoint loaded. Resuming from epoch {start_epoch}")
+    return start_epoch
+
+# Check if recovery mode is enabled
+checkpoint_path = "model_dumps/vit_train_checkpoint.pth"
+start_epoch = 0
+
+if len(sys.argv) > 4 and sys.argv[4] == "recover":
+    start_epoch = load_checkpoint(path=checkpoint_path)
+
+# Training loop
+epochs = 10
+model.train()
+
+for epoch in range(start_epoch, epochs):
+    running_loss = 0.0
+    correct = 0
+    total = 0
+
+    for inputs, labels in tqdm(expanded_train_loader, desc=f"Epoch {epoch+1}/{epochs}"):
+        # Move data to device
+        inputs, labels = inputs.to(device), labels.to(device)
+
+        # Forward pass
+        outputs = model(pixel_values=inputs)  # ViT expects `pixel_values`
+        loss = criterion(outputs.logits, labels)
+
+        # Backward pass and optimization
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        running_loss += loss.item()
+
+        # Calculate accuracy
+        _, predicted = torch.max(outputs.logits, dim=1)
+        total += labels.size(0)
+        correct += (predicted == labels).sum().item()
+
+        # batch_accuracy = 100 * (predicted == labels).sum().item() / labels.size(0)
+        # print(f"Batch Accuracy: {batch_accuracy:.2f}%")
+
+    epoch_loss = running_loss / len(expanded_train_loader)
+    epoch_accuracy = 100 * correct / total
+    print(f"Epoch {epoch+1}/{epochs}, Loss: {epoch_loss:.4f}, Accuracy: {epoch_accuracy:.2f}%")
+
+    # Save checkpoint at the end of each epoch
+    save_checkpoint(epoch, model, optimizer, path=f"model_dumps/vit_train_checkpoint.pth")
 # Load pre-trained ViT model
 feature_extractor = ViTFeatureExtractor.from_pretrained("google/vit-base-patch16-224")
-model = ViTModel.from_pretrained("google/vit-base-patch16-224")
-model.to(device)  # Move the model to the GPU (if available)
+# model = ViTModel.from_pretrained("google/vit-base-patch16-224")
+# model.to(device)  # Move the model to the GPU (if available)
 model.eval()
 
 # Update image transform for grayscale images to match ViT input requirements
@@ -189,8 +410,6 @@ transform = transforms.Compose([
     transforms.ToTensor(),
     transforms.Normalize(mean=feature_extractor.image_mean, std=feature_extractor.image_std),
 ])
-
-roi = 160
 
 
 # Directory to save processed images and features
@@ -255,7 +474,8 @@ for _, row in tqdm(df_adni.iterrows(), total=len(df_adni), desc="Processing imag
                     # Extract features using ViT
                     with torch.no_grad():
                         outputs = model(slice_tensor)
-                        slice_features = outputs.last_hidden_state.mean(dim=1).squeeze().cpu().numpy()  # Move output back to CPU
+                        # slice_features = outputs.last_hidden_state.mean(dim=1).squeeze().cpu().numpy()  # Move output back to CPU
+                        slice_features = model.vit(slice_tensor).last_hidden_state.mean(dim=1).squeeze().cpu().numpy()
                         features.append(slice_features)
 
                 # Save extracted features
@@ -711,15 +931,6 @@ for _, row in tqdm(df_fcon.iterrows(), total=len(df_fcon), desc="Processing test
 #             print(f"File not found: {filepath}")
 
 
-import torch
-import torch.nn as nn
-import torch.optim as optim
-from torch.utils.data import DataLoader, Dataset
-from dataset_cls import ADNIDataset
-
-# Prepare dataset and dataloaders
-sex_encoded = df['Sex'].apply(lambda x: 0 if x == 'M' else 1).tolist()
-age_list = df['Age'].tolist()
 
 batch_size = 1
 
@@ -730,15 +941,14 @@ print (features_list[0].shape)
 dataset = ADNIDataset(features_list, sex_encoded, age_list)
 train_size = int(0.8 * len(dataset))
 val_size = len(dataset) - train_size
+generator.manual_seed(universal_seed)
 train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
-
 # Store the indices of the validation dataset
 val_indices = val_dataset.indices
 train_indices = train_dataset.indices
 
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False)
 val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
-
 
 # Tracking outputs for validation samples
 val_outputs = {}

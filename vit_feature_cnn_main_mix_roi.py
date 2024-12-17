@@ -69,6 +69,33 @@ def resample_nifti(img_data, target_slices = 160):
     # print (resampled_data.shape)
     return resampled_data
 
+def calculate_bounding_box_from_volume(volume):
+    # Find indices of non-zero values
+    non_zero_indices = np.argwhere(volume > 0)
+
+    # Calculate min and max indices along each dimension
+    min_indices = np.min(non_zero_indices, axis=0)
+    max_indices = np.max(non_zero_indices, axis=0)
+
+    # Convert indices to integers
+    min_indices = min_indices.astype(int)
+    max_indices = max_indices.astype(int)
+
+    return min_indices, max_indices
+
+
+def crop_brain_volumes(brain_data):
+    
+
+        # Calculate bounding box from the brain volume
+    min_indices, max_indices = calculate_bounding_box_from_volume(brain_data)
+
+        # Crop the volume
+    cropped_brain = brain_data[min_indices[0]:max_indices[0] + 1,
+                                   min_indices[1]:max_indices[1] + 1,
+                                   min_indices[2]:max_indices[2] + 1]
+    return cropped_brain
+
 
 # Check if GPU is available
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -164,12 +191,12 @@ df_oas1 = df_oas1.sort_values(by='Age', ascending=False).reset_index(drop=True).
 
 df = pd.concat ([
                  df_adni[['ImageID', 'Sex', 'Age']], 
-                 df_ixi[['ImageID', 'Sex', 'Age']], 
+                #  df_ixi[['ImageID', 'Sex', 'Age']], 
                 #  df_abide[['ImageID', 'Sex', 'Age']],
                  df_dlbs[['ImageID', 'Sex', 'Age']],
                 #  df_cobre[['ImageID', 'Sex', 'Age']],
                  df_fcon[['ImageID', 'Sex', 'Age']],
-                #  df_sald[['ImageID', 'Sex', 'Age']],
+                 df_sald[['ImageID', 'Sex', 'Age']],
                 #  df_corr[['ImageID', 'Sex', 'Age']], 
                 #  df_oas1[['ImageID', 'Sex', 'Age']],
                  ], ignore_index=True)
@@ -206,7 +233,7 @@ for _, row in tqdm(df_adni.iterrows(), total=len(df_adni), desc="Processing imag
     image_title = f"{row['ImageID'][4:]}_{row['SubjectID']}"
 
     # Check if the feature file already exists
-    feature_file_path = f"adni_storage/ADNI_features/{image_title}_features.npy"
+    feature_file_path = f"adni_storage/ADNI_features/{image_title}_features_roi.npy"
     if os.path.exists(feature_file_path):
         # If file exists, load the features from the file
         features = np.load(feature_file_path)
@@ -241,7 +268,8 @@ for _, row in tqdm(df_adni.iterrows(), total=len(df_adni), desc="Processing imag
                 affine = nii_img.affine  # Affine transformation matrix
 
                 # Resample the volume to 160 slices (if required)
-                data = resample_volume_to_fixed_slices(data, affine, target_slices=160)
+                data = crop_brain_volumes(data)
+                data = resample_nifti(data, target_slices=160)
 
                 # Extract features for all sagittal slices
                 features = []
@@ -269,66 +297,11 @@ for _, row in tqdm(df_adni.iterrows(), total=len(df_adni), desc="Processing imag
         else:
             print(f"File not found: {filepath}")
 
-for _, row in tqdm(df_ixi.iterrows(), total=len(df_ixi), desc="Processing test images"):
-    filepath = row['filepath']    
-    image_title = f"{row['ImageID']}"
-        # Check if the feature file already exists
-    feature_file_path = f"ixi_storage/IXI_features/{image_title}_features.npy"
-    if os.path.exists(feature_file_path):
-        # If file exists, load the features from the file
-        features = np.load(feature_file_path)
-        
-        features =  features[len(features) // 2 - roi//2 : len(features) // 2 + roi//2]
-        features_list.append(features)  # Flatten the features and add to the list
-        labels_list.append(row['Age'])  # Add the corresponding age label
-    else:
-        if os.path.exists(filepath):
-            try:
-                # Load the NIfTI image
-                nii_img = nib.load(filepath)
-
-                # Get current orientation and reorient to RAS
-                orig_ornt = io_orientation(nii_img.affine)
-                ras_ornt = axcodes2ornt(("R", "A", "S"))
-                ornt_trans = ornt_transform(orig_ornt, ras_ornt)
-
-                data = nii_img.get_fdata()  # Load image data
-                data = apply_orientation(data, ornt_trans)
-
-                affine = nii_img.affine  # Affine transformation matrix
-
-                # Resample the volume to 160 slices (if required)
-                data = resample_nifti(data, target_slices=160)
-                # Extract features for all slices
-                features = []
-                for slice_idx in range(data.shape[0]):
-                    slice_data = data[slice_idx, :, :]
-                    slice_data = (slice_data - np.min(slice_data)) / (np.max(slice_data) - np.min(slice_data))  # Normalize
-                    
-                    slice_tensor = transform(slice_data).unsqueeze(0).to(device)
-                    
-                    # Extract features using ViT
-                    with torch.no_grad():
-                        outputs = model(slice_tensor)
-                        slice_features = outputs.last_hidden_state.mean(dim=1).squeeze().cpu().numpy()
-                        features.append(slice_features)
-                # Save extracted features
-                features = np.array(features)
-                np.save(feature_file_path, features)
-                features_list.append(features)
-                labels_list.append(row['Age'])  # Assuming 'Age' is the target
-
-            except Exception as e:
-                print(f"Error processing {filepath}: {e}")
-        else:
-            print(f"File not found: {filepath}")
-
-# for _, row in tqdm(df_abide.iterrows(), total=len(df_abide), desc="Processing test images"):
+# for _, row in tqdm(df_ixi.iterrows(), total=len(df_ixi), desc="Processing test images"):
 #     filepath = row['filepath']    
-#     image_title = f"{row['ImageID'][7:]}"
+#     image_title = f"{row['ImageID']}"
 #         # Check if the feature file already exists
-#     feature_file_path = f"abide_storage/ABIDEII_features/{image_title}_features.npy"
-#     # feature_file_path = f"ixi_storage/IXI_features/{image_title}_features.npy"
+#     feature_file_path = f"ixi_storage/IXI_features/{image_title}_features_roi.npy"
 #     if os.path.exists(feature_file_path):
 #         # If file exists, load the features from the file
 #         features = np.load(feature_file_path)
@@ -353,7 +326,64 @@ for _, row in tqdm(df_ixi.iterrows(), total=len(df_ixi), desc="Processing test i
 #                 affine = nii_img.affine  # Affine transformation matrix
 
 #                 # Resample the volume to 160 slices (if required)
+#                 data = crop_brain_volumes(data)
 #                 data = resample_nifti(data, target_slices=160)
+#                 # Extract features for all slices
+#                 features = []
+#                 for slice_idx in range(data.shape[0]):
+#                     slice_data = data[slice_idx, :, :]
+#                     slice_data = (slice_data - np.min(slice_data)) / (np.max(slice_data) - np.min(slice_data))  # Normalize
+                    
+#                     slice_tensor = transform(slice_data).unsqueeze(0).to(device)
+                    
+#                     # Extract features using ViT
+#                     with torch.no_grad():
+#                         outputs = model(slice_tensor)
+#                         slice_features = outputs.last_hidden_state.mean(dim=1).squeeze().cpu().numpy()
+#                         features.append(slice_features)
+#                 # Save extracted features
+#                 features = np.array(features)
+#                 np.save(feature_file_path, features)
+#                 features_list.append(features)
+#                 labels_list.append(row['Age'])  # Assuming 'Age' is the target
+
+#             except Exception as e:
+#                 print(f"Error processing {filepath}: {e}")
+#         else:
+#             print(f"File not found: {filepath}")
+
+# for _, row in tqdm(df_abide.iterrows(), total=len(df_abide), desc="Processing test images"):
+#     filepath = row['filepath']    
+#     image_title = f"{row['ImageID'][7:]}"
+#         # Check if the feature file already exists
+#     feature_file_path = f"abide_storage/ABIDEII_features/{image_title}_features_roi.npy"
+#     # feature_file_path = f"ixi_storage/IXI_features/{image_title}_features_roi.npy"
+#     if os.path.exists(feature_file_path):
+#         # If file exists, load the features from the file
+#         features = np.load(feature_file_path)
+        
+#         features =  features[len(features) // 2 - roi//2 : len(features) // 2 + roi//2]
+#         features_list.append(features)  # Flatten the features and add to the list
+#         labels_list.append(row['Age'])  # Add the corresponding age label
+#     else:
+#         if os.path.exists(filepath):
+#             try:
+#                 # Load the NIfTI image
+#                 nii_img = nib.load(filepath)
+
+#                 # Get current orientation and reorient to RAS
+#                 orig_ornt = io_orientation(nii_img.affine)
+#                 ras_ornt = axcodes2ornt(("R", "A", "S"))
+#                 ornt_trans = ornt_transform(orig_ornt, ras_ornt)
+
+#                 data = nii_img.get_fdata()  # Load image data
+#                 data = apply_orientation(data, ornt_trans)
+
+#                 affine = nii_img.affine  # Affine transformation matrix
+
+#                 # Resample the volume to 160 slices (if required)
+#                 data = crop_brain_volumes(data)
+# data = resample_nifti(data, target_slices=160)
 #                 # Extract features for all slices
 #                 features = []
 #                 for slice_idx in range(data.shape[0]):
@@ -382,8 +412,8 @@ for _, row in tqdm(df_dlbs.iterrows(), total=len(df_dlbs), desc="Processing test
     filepath = row['filepath']    
     image_title = f"{row['ImageID'][4:]}"
         # Check if the feature file already exists
-    feature_file_path = f"dlbs_storage/DLBS_features/{image_title}_features.npy"
-    # feature_file_path = f"ixi_storage/IXI_features/{image_title}_features.npy"
+    feature_file_path = f"dlbs_storage/DLBS_features/{image_title}_features_roi.npy"
+    # feature_file_path = f"ixi_storage/IXI_features/{image_title}_features_roi.npy"
     if os.path.exists(feature_file_path):
         # If file exists, load the features from the file
         features = np.load(feature_file_path)
@@ -408,6 +438,7 @@ for _, row in tqdm(df_dlbs.iterrows(), total=len(df_dlbs), desc="Processing test
                 affine = nii_img.affine  # Affine transformation matrix
 
                 # Resample the volume to 160 slices (if required)
+                data = crop_brain_volumes(data)
                 data = resample_nifti(data, target_slices=160)
                 # Extract features for all slices
                 features = []
@@ -438,8 +469,8 @@ for _, row in tqdm(df_dlbs.iterrows(), total=len(df_dlbs), desc="Processing test
 #     filepath = row['filepath']    
 #     image_title = f"{row['ImageID'][5:]}"
 #         # Check if the feature file already exists
-#     feature_file_path = f"cobre_storage/COBRE_features/{image_title}_features.npy"
-#     # feature_file_path = f"ixi_storage/IXI_features/{image_title}_features.npy"
+#     feature_file_path = f"cobre_storage/COBRE_features/{image_title}_features_roi.npy"
+#     # feature_file_path = f"ixi_storage/IXI_features/{image_title}_features_roi.npy"
 #     if os.path.exists(feature_file_path):
 #         # If file exists, load the features from the file
 #         features = np.load(feature_file_path)
@@ -464,7 +495,8 @@ for _, row in tqdm(df_dlbs.iterrows(), total=len(df_dlbs), desc="Processing test
 #                 affine = nii_img.affine  # Affine transformation matrix
 
 #                 # Resample the volume to 160 slices (if required)
-#                 data = resample_nifti(data, target_slices=160)
+#                 data = crop_brain_volumes(data)
+# data = resample_nifti(data, target_slices=160)
 #                 # Extract features for all slices
 #                 features = []
 #                 for slice_idx in range(data.shape[0]):
@@ -494,8 +526,8 @@ for _, row in tqdm(df_fcon.iterrows(), total=len(df_fcon), desc="Processing test
     filepath = row['filepath']    
     image_title = f"{row['ImageID'][5:]}"
         # Check if the feature file already exists
-    feature_file_path = f"fcon1000_storage/fcon1000_features/{image_title}_features.npy"
-    # feature_file_path = f"ixi_storage/IXI_features/{image_title}_features.npy"
+    feature_file_path = f"fcon1000_storage/fcon1000_features/{image_title}_features_roi.npy"
+    # feature_file_path = f"ixi_storage/IXI_features/{image_title}_features_roi.npy"
     if os.path.exists(feature_file_path):
         # If file exists, load the features from the file
         features = np.load(feature_file_path)
@@ -520,6 +552,7 @@ for _, row in tqdm(df_fcon.iterrows(), total=len(df_fcon), desc="Processing test
                 affine = nii_img.affine  # Affine transformation matrix
 
                 # Resample the volume to 160 slices (if required)
+                data = crop_brain_volumes(data)
                 data = resample_nifti(data, target_slices=160)
                 # Extract features for all slices
                 features = []
@@ -545,67 +578,68 @@ for _, row in tqdm(df_fcon.iterrows(), total=len(df_fcon), desc="Processing test
         else:
             print(f"File not found: {filepath}")
 
-# for _, row in tqdm(df_sald.iterrows(), total=len(df_sald), desc="Processing test images"):
-#     filepath = row['filepath']    
-#     image_title = f"{row['ImageID'][4:]}"
-#         # Check if the feature file already exists
-#     feature_file_path = f"sald_storage/SALD_features/{image_title}_features.npy"
-#     # feature_file_path = f"ixi_storage/IXI_features/{image_title}_features.npy"
-#     if os.path.exists(feature_file_path):
-#         # If file exists, load the features from the file
-#         features = np.load(feature_file_path)
+for _, row in tqdm(df_sald.iterrows(), total=len(df_sald), desc="Processing test images"):
+    filepath = row['filepath']    
+    image_title = f"{row['ImageID'][4:]}"
+        # Check if the feature file already exists
+    feature_file_path = f"sald_storage/SALD_features/{image_title}_features_roi.npy"
+    # feature_file_path = f"ixi_storage/IXI_features/{image_title}_features_roi.npy"
+    if os.path.exists(feature_file_path):
+        # If file exists, load the features from the file
+        features = np.load(feature_file_path)
         
-#         features =  features[len(features) // 2 - roi//2 : len(features) // 2 + roi//2]
-#         features_list.append(features)  # Flatten the features and add to the list
-#         labels_list.append(row['Age'])  # Add the corresponding age label
-#     else:
-#         if os.path.exists(filepath):
-#             try:
-#                 # Load the NIfTI image
-#                 nii_img = nib.load(filepath)
+        features =  features[len(features) // 2 - roi//2 : len(features) // 2 + roi//2]
+        features_list.append(features)  # Flatten the features and add to the list
+        labels_list.append(row['Age'])  # Add the corresponding age label
+    else:
+        if os.path.exists(filepath):
+            try:
+                # Load the NIfTI image
+                nii_img = nib.load(filepath)
 
-#                 # Get current orientation and reorient to RAS
-#                 orig_ornt = io_orientation(nii_img.affine)
-#                 ras_ornt = axcodes2ornt(("R", "A", "S"))
-#                 ornt_trans = ornt_transform(orig_ornt, ras_ornt)
+                # Get current orientation and reorient to RAS
+                orig_ornt = io_orientation(nii_img.affine)
+                ras_ornt = axcodes2ornt(("R", "A", "S"))
+                ornt_trans = ornt_transform(orig_ornt, ras_ornt)
 
-#                 data = nii_img.get_fdata()  # Load image data
-#                 data = apply_orientation(data, ornt_trans)
+                data = nii_img.get_fdata()  # Load image data
+                data = apply_orientation(data, ornt_trans)
 
-#                 affine = nii_img.affine  # Affine transformation matrix
+                affine = nii_img.affine  # Affine transformation matrix
 
-#                 # Resample the volume to 160 slices (if required)
-#                 data = resample_nifti(data, target_slices=160)
-#                 # Extract features for all slices
-#                 features = []
-#                 for slice_idx in range(data.shape[0]):
-#                     slice_data = data[slice_idx, :, :]
-#                     slice_data = (slice_data - np.min(slice_data)) / (np.max(slice_data) - np.min(slice_data))  # Normalize
+                # Resample the volume to 160 slices (if required)
+                data = crop_brain_volumes(data)
+                data = resample_nifti(data, target_slices=160)
+                # Extract features for all slices
+                features = []
+                for slice_idx in range(data.shape[0]):
+                    slice_data = data[slice_idx, :, :]
+                    slice_data = (slice_data - np.min(slice_data)) / (np.max(slice_data) - np.min(slice_data))  # Normalize
                     
-#                     slice_tensor = transform(slice_data).unsqueeze(0).to(device)
+                    slice_tensor = transform(slice_data).unsqueeze(0).to(device)
                     
-#                     # Extract features using ViT
-#                     with torch.no_grad():
-#                         outputs = model(slice_tensor)
-#                         slice_features = outputs.last_hidden_state.mean(dim=1).squeeze().cpu().numpy()
-#                         features.append(slice_features)
-#                 # Save extracted features
-#                 features = np.array(features)
-#                 np.save(feature_file_path, features)
-#                 features_list.append(features)
-#                 labels_list.append(row['Age'])  # Assuming 'Age' is the target
+                    # Extract features using ViT
+                    with torch.no_grad():
+                        outputs = model(slice_tensor)
+                        slice_features = outputs.last_hidden_state.mean(dim=1).squeeze().cpu().numpy()
+                        features.append(slice_features)
+                # Save extracted features
+                features = np.array(features)
+                np.save(feature_file_path, features)
+                features_list.append(features)
+                labels_list.append(row['Age'])  # Assuming 'Age' is the target
 
-#             except Exception as e:
-#                 print(f"Error processing {filepath}: {e}")
-#         else:
-#             print(f"File not found: {filepath}")
+            except Exception as e:
+                print(f"Error processing {filepath}: {e}")
+        else:
+            print(f"File not found: {filepath}")
 
 # for _, row in tqdm(df_corr.iterrows(), total=len(df_corr), desc="Processing test images"):
 #     filepath = row['filepath']    
 #     image_title = f"{row['ImageID'][5:]}"
 #         # Check if the feature file already exists
-#     feature_file_path = f"corr_storage/CORR_features/{image_title}_features.npy"
-#     # feature_file_path = f"ixi_storage/IXI_features/{image_title}_features.npy"
+#     feature_file_path = f"corr_storage/CORR_features/{image_title}_features_roi.npy"
+#     # feature_file_path = f"ixi_storage/IXI_features/{image_title}_features_roi.npy"
 #     if os.path.exists(feature_file_path):
 #         # If file exists, load the features from the file
 #         features = np.load(feature_file_path)
@@ -630,7 +664,8 @@ for _, row in tqdm(df_fcon.iterrows(), total=len(df_fcon), desc="Processing test
 #                 affine = nii_img.affine  # Affine transformation matrix
 
 #                 # Resample the volume to 160 slices (if required)
-#                 data = resample_nifti(data, target_slices=160)
+#                 data = crop_brain_volumes(data)
+# data = resample_nifti(data, target_slices=160)
 #                 # Extract features for all slices
 #                 features = []
 #                 for slice_idx in range(data.shape[0]):
@@ -660,7 +695,7 @@ for _, row in tqdm(df_fcon.iterrows(), total=len(df_fcon), desc="Processing test
 #     filepath = row['filepath']    
 #     image_title = f"{row['ImageID']}"
 #         # Check if the feature file already exists
-#     feature_file_path = f"oasis1_storage/oasis1_features/{image_title}_features.npy"
+#     feature_file_path = f"oasis1_storage/oasis1_features/{image_title}_features_roi.npy"
 #     if os.path.exists(feature_file_path):
 #         # If file exists, load the features from the file
 #         features = np.load(feature_file_path)
@@ -685,7 +720,8 @@ for _, row in tqdm(df_fcon.iterrows(), total=len(df_fcon), desc="Processing test
 #                 affine = nii_img.affine  # Affine transformation matrix
 
 #                 # Resample the volume to 160 slices (if required)
-#                 data = resample_nifti(data, target_slices=160)
+#                 data = crop_brain_volumes(data)
+# data = resample_nifti(data, target_slices=160)
 #                 # Extract features for all slices
 #                 features = []
 #                 for slice_idx in range(data.shape[0]):
@@ -778,7 +814,7 @@ except AttributeError:
 
 print (features_list[0].shape)
 model = AgePredictionCNN((1, features_list[0].shape[0], features_list[0].shape[1])).to(device)
-criterion = nn.MSELoss()  # MAE Loss
+criterion = nn.L1Loss()  # MAE Loss
 eval_crit = nn.L1Loss()
 optimizer = optim.Adam(model.parameters(), lr=0.001)
 best_loss = np.inf  # Initialize the best loss to infinity

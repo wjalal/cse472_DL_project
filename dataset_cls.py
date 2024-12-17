@@ -10,7 +10,7 @@ class ADNIDataset(Dataset):
         self.age = age_list
 
     def __len__(self):
-        return len(self.features)
+        return len(self.age)
 
     def __getitem__(self, idx):
         return (
@@ -36,3 +36,16 @@ class ADNIDatasetLite(Dataset):
             torch.tensor(self.age[idx], dtype=torch.float32),
         )
 
+class ADNIDatasetViT(Dataset):
+    def __init__(self,image_list, age_list):
+        self.images = image_list
+        self.label = age_list
+
+    def __len__(self):
+        return len(self.label)
+
+    def __getitem__(self, idx):
+        return (
+            self.images[idx],
+            self.label[idx],
+        )

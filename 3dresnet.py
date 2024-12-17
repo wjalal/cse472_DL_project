@@ -128,19 +128,19 @@ class BrainImageModel(nn.Module):
         self.dropout = nn.Dropout(0.2)
         self.fc2 = nn.Linear(129, 1)
 
-    def forward(self, x, gender):
+    def forward(self, x, sex):
         x1 = torch.relu(self.conv1(x))
         x2 = torch.relu(self.conv2(x1))
-        x2 = x2.permute(0, 2, 3, 4, 1)  # Rearrange for attention: (batch, depth, height, width, channels)
+        # x2 = x2.permute(0, 2, 3, 4, 1)  # Rearrange for attention: (batch, depth, height, width, channels)
         
-        batch, depth, height, width, channels = x2.shape
-        x2 = x2.reshape(batch, depth * height * width, channels)  # Flatten spatial dimensions for attention
-        print(x2.shape)
+        # batch, depth, height, width, channels = x2.shape
+        # x2 = x2.reshape(batch, depth * height * width, channels)  # Flatten spatial dimensions for attention
+        # print(x2.shape)
 
-        # Use Linear Attention instead of Multihead Attention
-        x2 = self.linear_attention(x2, x2, x2)  # Apply linear attention (query, key, value)
-        print(f"After attention {x2.shape}")
-        x2 = x2.reshape(batch, depth, height, width, channels).permute(0, 4, 1, 2, 3)  # Reshape back
+        # # Use Linear Attention instead of Multihead Attention
+        # x2 = self.linear_attention(x2, x2, x2)  # Apply linear attention (query, key, value)
+        # print(f"After attention {x2.shape}")
+        # x2 = x2.reshape(batch, depth, height, width, channels).permute(0, 4, 1, 2, 3)  # Reshape back
         x = self.concat(x1, x2)  # Concatenate outputs from conv2 and attention
         x = self.batch_norm1(x)
         x = self.elu1(x)
@@ -158,7 +158,7 @@ class BrainImageModel(nn.Module):
         x = self.fc1(x)
         x = self.elu4(x)
         x = self.dropout(x)
-        x = torch.cat((x, gender), dim=1)  # Concatenate gender input
+        x = torch.cat((x, sex.unsqueeze(1)), dim=1)  # Concatenate gender input
         x = self.fc2(x)
         return x
     
