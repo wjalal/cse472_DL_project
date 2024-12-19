@@ -11,3 +11,5 @@ ants/
 model_dumps/
 pretrained/
 medvit/
+processed_slices/
+vit_trained_bak/

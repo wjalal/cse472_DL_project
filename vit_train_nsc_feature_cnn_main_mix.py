@@ -178,7 +178,7 @@ df = pd.concat ([
 print (df)
 # Ensure 'Age' is an integer
 df['Age_Group'] = df['Age'].astype(int).apply(lambda x: f"{x:03d}"[:-1] + "0")
-df['Age_Group'] = df['Age_Group'] + df['Sex']
+# df['Age_Group'] = df['Age_Group'] + df['Sex']
 print (df['Age_Group'].unique())
 # Prepare dataset and dataloaders
 sex_encoded = df['Sex'].apply(lambda x: 0 if x == 'M' else 1).tolist()
@@ -345,7 +345,7 @@ if len(sys.argv) > 4 and sys.argv[4] == "recover":
     start_epoch = load_checkpoint(path=checkpoint_path)
 
 # Training loop
-vit_train_epochs = 15
+vit_train_epochs = 10
 model.train()
 
 for epoch in range(start_epoch, vit_train_epochs):
@@ -407,14 +407,14 @@ labels_list = []
 
 
 # Directory to save processed images and features
-os.makedirs(f"adni_storage/ADNI_features/train_e{vit_train_epochs}/", exist_ok=True)
+os.makedirs(f"adni_storage/ADNI_features/train_nsc_e{vit_train_epochs}/", exist_ok=True)
 # Process each row in the DataFrame
 for _, row in tqdm(df_adni.iterrows(), total=len(df_adni), desc="Processing images"):
     filepath = row['filepath']
     image_title = f"{row['ImageID'][4:]}_{row['SubjectID']}"
 
     # Check if the feature file already exists
-    feature_file_path = f"adni_storage/ADNI_features/train_e{vit_train_epochs}/{image_title}_features.npy"
+    feature_file_path = f"adni_storage/ADNI_features/train_nsc_e{vit_train_epochs}/{image_title}_features.npy"
     if os.path.exists(feature_file_path):
         # If file exists, load the features from the file
         features = np.load(feature_file_path)
@@ -427,7 +427,7 @@ for _, row in tqdm(df_adni.iterrows(), total=len(df_adni), desc="Processing imag
         # Create an image from the array
         img = Image.fromarray(np.transpose(data_normalized), mode='L')  # 'L' mode for grayscale
         # Save the image
-        # img.save(f"adni_storage/ADNI_features/train_e{vit_train_epochs}/featuremaps/{image_title}_fm.png")
+        # img.save(f"adni_storage/ADNI_features/train_nsc_e{vit_train_epochs}/featuremaps/{image_title}_fm.png")
 
         features_list.append(features)  # Flatten the features and add to the list
         labels_list.append(row['Age'])  # Add the corresponding age label
@@ -480,12 +480,12 @@ for _, row in tqdm(df_adni.iterrows(), total=len(df_adni), desc="Processing imag
 
 
 # Directory to save processed images and features
-os.makedirs(f"ixi_storage/IXI_features/train_e{vit_train_epochs}/", exist_ok=True)
+os.makedirs(f"ixi_storage/IXI_features/train_nsc_e{vit_train_epochs}/", exist_ok=True)
 for _, row in tqdm(df_ixi.iterrows(), total=len(df_ixi), desc="Processing test images"):
     filepath = row['filepath']    
     image_title = f"{row['ImageID']}"
         # Check if the feature file already exists
-    feature_file_path = f"ixi_storage/IXI_features/train_e{vit_train_epochs}/{image_title}_features.npy"
+    feature_file_path = f"ixi_storage/IXI_features/train_nsc_e{vit_train_epochs}/{image_title}_features.npy"
     if os.path.exists(feature_file_path):
         # If file exists, load the features from the file
         features = np.load(feature_file_path)
@@ -537,13 +537,13 @@ for _, row in tqdm(df_ixi.iterrows(), total=len(df_ixi), desc="Processing test i
 
 
 # # Directory to save processed images and features
-# os.makedirs(f"abide_storage/ABIDEII_features/train_e{vit_train_epochs}/", exist_ok=True)
+# os.makedirs(f"abide_storage/ABIDEII_features/train_nsc_e{vit_train_epochs}/", exist_ok=True)
 # for _, row in tqdm(df_abide.iterrows(), total=len(df_abide), desc="Processing test images"):
 #     filepath = row['filepath']    
 #     image_title = f"{row['ImageID'][7:]}"
 #         # Check if the feature file already exists
-#     feature_file_path = f"abide_storage/ABIDEII_features/train_e{vit_train_epochs}/{image_title}_features.npy"
-#     # feature_file_path = f"ixi_storage/IXI_features/train_e{vit_train_epochs}/{image_title}_features.npy"
+#     feature_file_path = f"abide_storage/ABIDEII_features/train_nsc_e{vit_train_epochs}/{image_title}_features.npy"
+#     # feature_file_path = f"ixi_storage/IXI_features/train_nsc_e{vit_train_epochs}/{image_title}_features.npy"
 #     if os.path.exists(feature_file_path):
 #         # If file exists, load the features from the file
 #         features = np.load(feature_file_path)
@@ -593,13 +593,13 @@ for _, row in tqdm(df_ixi.iterrows(), total=len(df_ixi), desc="Processing test i
 #         else:
 #             print(f"File not found: {filepath}")
 
-os.makedirs(f"dlbs_storage/DLBS_features/train_e{vit_train_epochs}/", exist_ok=True)
+os.makedirs(f"dlbs_storage/DLBS_features/train_nsc_e{vit_train_epochs}/", exist_ok=True)
 for _, row in tqdm(df_dlbs.iterrows(), total=len(df_dlbs), desc="Processing test images"):
     filepath = row['filepath']    
     image_title = f"{row['ImageID'][4:]}"
         # Check if the feature file already exists
-    feature_file_path = f"dlbs_storage/DLBS_features/train_e{vit_train_epochs}/{image_title}_features.npy"
-    # feature_file_path = f"ixi_storage/IXI_features/train_e{vit_train_epochs}/{image_title}_features.npy"
+    feature_file_path = f"dlbs_storage/DLBS_features/train_nsc_e{vit_train_epochs}/{image_title}_features.npy"
+    # feature_file_path = f"ixi_storage/IXI_features/train_nsc_e{vit_train_epochs}/{image_title}_features.npy"
     if os.path.exists(feature_file_path):
         # If file exists, load the features from the file
         features = np.load(feature_file_path)
@@ -650,13 +650,13 @@ for _, row in tqdm(df_dlbs.iterrows(), total=len(df_dlbs), desc="Processing test
             print(f"File not found: {filepath}")
 
 
-# os.makedirs(f"cobre_storage/COBRE_features/train_e{vit_train_epochs}/", exist_ok=True)
+# os.makedirs(f"cobre_storage/COBRE_features/train_nsc_e{vit_train_epochs}/", exist_ok=True)
 # for _, row in tqdm(df_cobre.iterrows(), total=len(df_cobre), desc="Processing test images"):
 #     filepath = row['filepath']    
 #     image_title = f"{row['ImageID'][5:]}"
 #         # Check if the feature file already exists
-#     feature_file_path = f"cobre_storage/COBRE_features/train_e{vit_train_epochs}/{image_title}_features.npy"
-#     # feature_file_path = f"ixi_storage/IXI_features/train_e{vit_train_epochs}/{image_title}_features.npy"
+#     feature_file_path = f"cobre_storage/COBRE_features/train_nsc_e{vit_train_epochs}/{image_title}_features.npy"
+#     # feature_file_path = f"ixi_storage/IXI_features/train_nsc_e{vit_train_epochs}/{image_title}_features.npy"
 #     if os.path.exists(feature_file_path):
 #         # If file exists, load the features from the file
 #         features = np.load(feature_file_path)
@@ -706,13 +706,13 @@ for _, row in tqdm(df_dlbs.iterrows(), total=len(df_dlbs), desc="Processing test
 #         else:
 #             print(f"File not found: {filepath}")
 
-os.makedirs(f"fcon1000_storage/fcon1000_features/train_e{vit_train_epochs}/", exist_ok=True)
+os.makedirs(f"fcon1000_storage/fcon1000_features/train_nsc_e{vit_train_epochs}/", exist_ok=True)
 for _, row in tqdm(df_fcon.iterrows(), total=len(df_fcon), desc="Processing test images"):
     filepath = row['filepath']    
     image_title = f"{row['ImageID'][5:]}"
         # Check if the feature file already exists
-    feature_file_path = f"fcon1000_storage/fcon1000_features/train_e{vit_train_epochs}/{image_title}_features.npy"
-    # feature_file_path = f"ixi_storage/IXI_features/train_e{vit_train_epochs}/{image_title}_features.npy"
+    feature_file_path = f"fcon1000_storage/fcon1000_features/train_nsc_e{vit_train_epochs}/{image_title}_features.npy"
+    # feature_file_path = f"ixi_storage/IXI_features/train_nsc_e{vit_train_epochs}/{image_title}_features.npy"
     if os.path.exists(feature_file_path):
         # If file exists, load the features from the file
         features = np.load(feature_file_path)
@@ -762,13 +762,13 @@ for _, row in tqdm(df_fcon.iterrows(), total=len(df_fcon), desc="Processing test
         else:
             print(f"File not found: {filepath}")
 
-# os.makedirs(f"sald_storage/SALD_features/train_e{vit_train_epochs}/", exist_ok=True)
+# os.makedirs(f"sald_storage/SALD_features/train_nsc_e{vit_train_epochs}/", exist_ok=True)
 # for _, row in tqdm(df_sald.iterrows(), total=len(df_sald), desc="Processing test images"):
 #     filepath = row['filepath']    
 #     image_title = f"{row['ImageID'][4:]}"
 #         # Check if the feature file already exists
-#     feature_file_path = f"sald_storage/SALD_features/train_e{vit_train_epochs}/{image_title}_features.npy"
-#     # feature_file_path = f"ixi_storage/IXI_features/train_e{vit_train_epochs}/{image_title}_features.npy"
+#     feature_file_path = f"sald_storage/SALD_features/train_nsc_e{vit_train_epochs}/{image_title}_features.npy"
+#     # feature_file_path = f"ixi_storage/IXI_features/train_nsc_e{vit_train_epochs}/{image_title}_features.npy"
 #     if os.path.exists(feature_file_path):
 #         # If file exists, load the features from the file
 #         features = np.load(feature_file_path)
@@ -818,13 +818,13 @@ for _, row in tqdm(df_fcon.iterrows(), total=len(df_fcon), desc="Processing test
 #         else:
 #             print(f"File not found: {filepath}")
 
-# os.makedirs(f"corr_storage/CORR_features/train_e{vit_train_epochs}/", exist_ok=True)
+# os.makedirs(f"corr_storage/CORR_features/train_nsc_e{vit_train_epochs}/", exist_ok=True)
 # for _, row in tqdm(df_corr.iterrows(), total=len(df_corr), desc="Processing test images"):
 #     filepath = row['filepath']    
 #     image_title = f"{row['ImageID'][5:]}"
 #         # Check if the feature file already exists
-#     feature_file_path = f"corr_storage/CORR_features/train_e{vit_train_epochs}/{image_title}_features.npy"
-#     # feature_file_path = f"ixi_storage/IXI_features/train_e{vit_train_epochs}/{image_title}_features.npy"
+#     feature_file_path = f"corr_storage/CORR_features/train_nsc_e{vit_train_epochs}/{image_title}_features.npy"
+#     # feature_file_path = f"ixi_storage/IXI_features/train_nsc_e{vit_train_epochs}/{image_title}_features.npy"
 #     if os.path.exists(feature_file_path):
 #         # If file exists, load the features from the file
 #         features = np.load(feature_file_path)
@@ -875,12 +875,12 @@ for _, row in tqdm(df_fcon.iterrows(), total=len(df_fcon), desc="Processing test
 #             print(f"File not found: {filepath}")
 
 
-# os.makedirs(f"oasis1_storage/oasis1_features/train_e{vit_train_epochs}/", exist_ok=True)
+# os.makedirs(f"oasis1_storage/oasis1_features/train_nsc_e{vit_train_epochs}/", exist_ok=True)
 # for _, row in tqdm(df_oas1.iterrows(), total=len(df_oas1), desc="Processing test images"):
 #     filepath = row['filepath']    
 #     image_title = f"{row['ImageID']}"
 #         # Check if the feature file already exists
-#     feature_file_path = f"oasis1_storage/oasis1_features/train_e{vit_train_epochs}/{image_title}_features.npy"
+#     feature_file_path = f"oasis1_storage/oasis1_features/train_nsc_e{vit_train_epochs}/{image_title}_features.npy"
 #     if os.path.exists(feature_file_path):
 #         # If file exists, load the features from the file
 #         features = np.load(feature_file_path)
