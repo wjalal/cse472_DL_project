@@ -1,3 +1,10 @@
 adni_storage/
+camcan_storage/
+dlbs_storage/
+fcon_storage/
+ixi_storage/
 ants/
 model_dumps/
+OASIS/
+oasis_storage/
+roi/

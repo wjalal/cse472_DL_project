@@ -19,8 +19,8 @@ session = tf.Session(config=tf.ConfigProto(log_device_placement=True))
 
 
 # Define the input and output directories
-input_dir = "adni_storage/ADNI_nii_gz"
-output_dir = "adni_storage/ADNI_nii_gz_stripped"
+input_dir = "camcan_storage/CamCAN"
+output_dir = "camcan_storage/CamCAN_nii_gz_stripped"
 
 # Ensure the output directory exists
 os.makedirs(output_dir, exist_ok=True)

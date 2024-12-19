@@ -4,11 +4,12 @@
 count=0
 
 # Define source and target directories
-source_folder="adni_storage/ADNI_nii_gz_stripped"
-target_folder="adni_storage/ADNI_nii_gz_bias_corrected"
+source_folder="camcan_storage/CamCAN_nii_gz_stripped"
+target_folder="camcan_storage/CamCAN_nii_gz_bias_corrected"
 
 # Path to N4BiasFieldCorrection binary
-n4bias_path="ants/ants-2.5.4/bin/N4BiasFieldCorrection"
+# n4bias_path="ants/ants-2.5.4/bin/N4BiasFieldCorrection"
+n4bias_path="~/miniconda3/envs/db3/bin/N4BiasFieldCorrection"
 
 # Loop through all .nii.gz files in the source folder
 for input_file in "${source_folder}"/*.stripped.nii.gz; do
