@@ -8,6 +8,7 @@ class AgePredictionCNN(nn.Module):
     def __init__(self, input_shape):
         super(AgePredictionCNN, self).__init__()
 
+        print ("AgePredictionCNN Shape:", input_shape)
         # Define convolutional and pooling layers
         self.conv1 = nn.Conv2d(1, 1, kernel_size=(10, 60), stride=1)
         self.pool1 = nn.MaxPool2d(kernel_size=2, stride=1)
@@ -25,7 +26,7 @@ class AgePredictionCNN(nn.Module):
         self.fc1_bn = None  # Placeholder for batch normalization after fc1
         self.fc2 = nn.Linear(512, 128)
         self.fc2_bn = nn.LayerNorm(128)
-        self.dropout = nn.Dropout(p=0.2)  # Dropout with 10% probability
+        self.dropout = nn.Dropout(p=0.3)  # Dropout with 10% probability
         self.fc3 = nn.Linear(129, 1)  # Adding 1 for the `Sex` input
 
         self.relu = nn.ReLU()

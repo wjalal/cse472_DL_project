@@ -8,6 +8,7 @@ class AgePredictionCNN(nn.Module):
     def __init__(self, input_shape):
         super(AgePredictionCNN, self).__init__()
 
+        print ("AgePredictionCNN Shape:", input_shape)
         # Define convolutional and pooling layers
         self.conv1 = nn.Conv2d(1, 1, kernel_size=(10, 60), stride=1)
         self.pool1 = nn.MaxPool2d(kernel_size=2, stride=1)

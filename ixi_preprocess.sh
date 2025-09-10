@@ -8,7 +8,7 @@ source_folder="ixi_storage/IXI_stripped"
 target_folder="ixi_storage/IXI_bias_corrected"
 
 # Path to N4BiasFieldCorrection binary
-n4bias_path="ants/ants-2.5.4/bin/N4BiasFieldCorrection"
+n4bias_path="ants-2.6.1/bin/N4BiasFieldCorrection"
 
 # Loop through all .nii.gz files in the source folder
 for input_file in "${source_folder}"/*.nii.gz; do

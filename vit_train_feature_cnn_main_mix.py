@@ -164,16 +164,27 @@ df_oas1['filepath'] = df_oas1.apply(
 df_oas1 = df_oas1.sort_values(by='Age', ascending=False).reset_index(drop=True).head(300)
 
 
+
+metadata_path = "camcan_storage/camcan_brainrotnet_metadata.csv"
+df_camcan = pd.read_csv(metadata_path)
+# Update filepaths for the independent dataset
+df_camcan['filepath'] = df_camcan.apply(
+    lambda row: f"camcan_storage/CamCAN_nii_gz_bias_corrected/{row['ImageID']}.stripped.N4.nii.gz",
+    axis=1
+)
+
+
 df = pd.concat ([
                  df_adni[['ImageID', 'Sex', 'Age', 'filepath']], 
-                 df_ixi[['ImageID', 'Sex', 'Age', 'filepath']], 
+                #  df_ixi[['ImageID', 'Sex', 'Age', 'filepath']], 
                 #  df_abide[['ImageID', 'Sex', 'Age', 'filepath']],
                  df_dlbs[['ImageID', 'Sex', 'Age', 'filepath']],
                 #  df_cobre[['ImageID', 'Sex', 'Age', 'filepath']],
                  df_fcon[['ImageID', 'Sex', 'Age', 'filepath']],
                 #  df_sald[['ImageID', 'Sex', 'Age', 'filepath']],
                 #  df_corr[['ImageID', 'Sex', 'Age', 'filepath']], 
-                #  df_oas1[['ImageID', 'Sex', 'Age', 'filepath']],
+                 df_oas1[['ImageID', 'Sex', 'Age', 'filepath']],
+                 df_camcan[['ImageID', 'Sex', 'Age', 'filepath']],
                  ], ignore_index=True)
 print (df)
 # Ensure 'Age' is an integer
@@ -345,7 +356,7 @@ if len(sys.argv) > 4 and sys.argv[4] == "recover":
     start_epoch = load_checkpoint(path=checkpoint_path)
 
 # Training loop
-vit_train_epochs = 15
+vit_train_epochs = 10
 model.train()
 
 for epoch in range(start_epoch, vit_train_epochs):
@@ -479,61 +490,61 @@ for _, row in tqdm(df_adni.iterrows(), total=len(df_adni), desc="Processing imag
             print(f"File not found: {filepath}")
 
 
-# Directory to save processed images and features
-os.makedirs(f"ixi_storage/IXI_features/train_e{vit_train_epochs}/", exist_ok=True)
-for _, row in tqdm(df_ixi.iterrows(), total=len(df_ixi), desc="Processing test images"):
-    filepath = row['filepath']    
-    image_title = f"{row['ImageID']}"
-        # Check if the feature file already exists
-    feature_file_path = f"ixi_storage/IXI_features/train_e{vit_train_epochs}/{image_title}_features.npy"
-    if os.path.exists(feature_file_path):
-        # If file exists, load the features from the file
-        features = np.load(feature_file_path)
+# # Directory to save processed images and features
+# os.makedirs(f"ixi_storage/IXI_features/train_e{vit_train_epochs}/", exist_ok=True)
+# for _, row in tqdm(df_ixi.iterrows(), total=len(df_ixi), desc="Processing test images"):
+#     filepath = row['filepath']    
+#     image_title = f"{row['ImageID']}"
+#         # Check if the feature file already exists
+#     feature_file_path = f"ixi_storage/IXI_features/train_e{vit_train_epochs}/{image_title}_features.npy"
+#     if os.path.exists(feature_file_path):
+#         # If file exists, load the features from the file
+#         features = np.load(feature_file_path)
         
-        features =  features[len(features) // 2 - roi//2 : len(features) // 2 + roi//2]
-        features_list.append(features)  # Flatten the features and add to the list
-        labels_list.append(row['Age'])  # Add the corresponding age label
-    else:
-        if os.path.exists(filepath):
-            try:
-                # Load the NIfTI image
-                nii_img = nib.load(filepath)
+#         features =  features[len(features) // 2 - roi//2 : len(features) // 2 + roi//2]
+#         features_list.append(features)  # Flatten the features and add to the list
+#         labels_list.append(row['Age'])  # Add the corresponding age label
+#     else:
+#         if os.path.exists(filepath):
+#             try:
+#                 # Load the NIfTI image
+#                 nii_img = nib.load(filepath)
 
-                # Get current orientation and reorient to RAS
-                orig_ornt = io_orientation(nii_img.affine)
-                ras_ornt = axcodes2ornt(("R", "A", "S"))
-                ornt_trans = ornt_transform(orig_ornt, ras_ornt)
+#                 # Get current orientation and reorient to RAS
+#                 orig_ornt = io_orientation(nii_img.affine)
+#                 ras_ornt = axcodes2ornt(("R", "A", "S"))
+#                 ornt_trans = ornt_transform(orig_ornt, ras_ornt)
 
-                data = nii_img.get_fdata()  # Load image data
-                data = apply_orientation(data, ornt_trans)
+#                 data = nii_img.get_fdata()  # Load image data
+#                 data = apply_orientation(data, ornt_trans)
 
-                affine = nii_img.affine  # Affine transformation matrix
+#                 affine = nii_img.affine  # Affine transformation matrix
 
-                # Resample the volume to 160 slices (if required)
-                data = resample_nifti(data, target_slices=160)
-                # Extract features for all slices
-                features = []
-                for slice_idx in range(data.shape[0]):
-                    slice_data = data[slice_idx, :, :]
-                    slice_data = (slice_data - np.min(slice_data)) / (np.max(slice_data) - np.min(slice_data))  # Normalize
+#                 # Resample the volume to 160 slices (if required)
+#                 data = resample_nifti(data, target_slices=160)
+#                 # Extract features for all slices
+#                 features = []
+#                 for slice_idx in range(data.shape[0]):
+#                     slice_data = data[slice_idx, :, :]
+#                     slice_data = (slice_data - np.min(slice_data)) / (np.max(slice_data) - np.min(slice_data))  # Normalize
                     
-                    slice_tensor = transform(slice_data).unsqueeze(0).to(device)
+#                     slice_tensor = transform(slice_data).unsqueeze(0).to(device)
                     
-                    # Extract features using ViT
-                    with torch.no_grad():
-                        #outputs = model(slice_tensor)
-                        slice_features = model.vit(slice_tensor).last_hidden_state.mean(dim=1).squeeze().cpu().numpy()
-                        features.append(slice_features)
-                # Save extracted features
-                features = np.array(features)
-                np.save(feature_file_path, features)
-                features_list.append(features)
-                labels_list.append(row['Age'])  # Assuming 'Age' is the target
+#                     # Extract features using ViT
+#                     with torch.no_grad():
+#                         #outputs = model(slice_tensor)
+#                         slice_features = model.vit(slice_tensor).last_hidden_state.mean(dim=1).squeeze().cpu().numpy()
+#                         features.append(slice_features)
+#                 # Save extracted features
+#                 features = np.array(features)
+#                 np.save(feature_file_path, features)
+#                 features_list.append(features)
+#                 labels_list.append(row['Age'])  # Assuming 'Age' is the target
 
-            except Exception as e:
-                print(f"Error processing {filepath}: {e}")
-        else:
-            print(f"File not found: {filepath}")
+#             except Exception as e:
+#                 print(f"Error processing {filepath}: {e}")
+#         else:
+#             print(f"File not found: {filepath}")
 
 
 # # Directory to save processed images and features
@@ -875,61 +886,117 @@ for _, row in tqdm(df_fcon.iterrows(), total=len(df_fcon), desc="Processing test
 #             print(f"File not found: {filepath}")
 
 
-# os.makedirs(f"oasis1_storage/oasis1_features/train_e{vit_train_epochs}/", exist_ok=True)
-# for _, row in tqdm(df_oas1.iterrows(), total=len(df_oas1), desc="Processing test images"):
-#     filepath = row['filepath']    
-#     image_title = f"{row['ImageID']}"
-#         # Check if the feature file already exists
-#     feature_file_path = f"oasis1_storage/oasis1_features/train_e{vit_train_epochs}/{image_title}_features.npy"
-#     if os.path.exists(feature_file_path):
-#         # If file exists, load the features from the file
-#         features = np.load(feature_file_path)
+os.makedirs(f"oasis1_storage/oasis1_features/train_e{vit_train_epochs}/", exist_ok=True)
+for _, row in tqdm(df_oas1.iterrows(), total=len(df_oas1), desc="Processing test images"):
+    filepath = row['filepath']    
+    image_title = f"{row['ImageID']}"
+        # Check if the feature file already exists
+    feature_file_path = f"oasis1_storage/oasis1_features/train_e{vit_train_epochs}/{image_title}_features.npy"
+    if os.path.exists(feature_file_path):
+        # If file exists, load the features from the file
+        features = np.load(feature_file_path)
         
-#         features =  features[len(features) // 2 - roi//2 : len(features) // 2 + roi//2]
-#         features_list.append(features)  # Flatten the features and add to the list
-#         labels_list.append(row['Age'])  # Add the corresponding age label
-#     else:
-#         if os.path.exists(filepath):
-#             try:
-#                 # Load the NIfTI image
-#                 nii_img = nib.load(filepath)
+        features =  features[len(features) // 2 - roi//2 : len(features) // 2 + roi//2]
+        features_list.append(features)  # Flatten the features and add to the list
+        labels_list.append(row['Age'])  # Add the corresponding age label
+    else:
+        if os.path.exists(filepath):
+            try:
+                # Load the NIfTI image
+                nii_img = nib.load(filepath)
 
-#                 # Get current orientation and reorient to RAS
-#                 orig_ornt = io_orientation(nii_img.affine)
-#                 ras_ornt = axcodes2ornt(("R", "A", "S"))
-#                 ornt_trans = ornt_transform(orig_ornt, ras_ornt)
+                # Get current orientation and reorient to RAS
+                orig_ornt = io_orientation(nii_img.affine)
+                ras_ornt = axcodes2ornt(("R", "A", "S"))
+                ornt_trans = ornt_transform(orig_ornt, ras_ornt)
 
-#                 data = nii_img.get_fdata()  # Load image data
-#                 data = apply_orientation(data, ornt_trans)
+                data = nii_img.get_fdata()  # Load image data
+                data = apply_orientation(data, ornt_trans)
 
-#                 affine = nii_img.affine  # Affine transformation matrix
+                affine = nii_img.affine  # Affine transformation matrix
 
-#                 # Resample the volume to 160 slices (if required)
-#                 data = resample_nifti(data, target_slices=160)
-#                 # Extract features for all slices
-#                 features = []
-#                 for slice_idx in range(data.shape[0]):
-#                     slice_data = data[slice_idx, :, :]
-#                     slice_data = (slice_data - np.min(slice_data)) / (np.max(slice_data) - np.min(slice_data))  # Normalize
+                # Resample the volume to 160 slices (if required)
+                data = resample_nifti(data, target_slices=160)
+                # Extract features for all slices
+                features = []
+                for slice_idx in range(data.shape[0]):
+                    slice_data = data[slice_idx, :, :]
+                    slice_data = (slice_data - np.min(slice_data)) / (np.max(slice_data) - np.min(slice_data))  # Normalize
                     
-#                     slice_tensor = transform(slice_data).unsqueeze(0).to(device)
+                    slice_tensor = transform(slice_data).unsqueeze(0).to(device)
                     
-#                     # Extract features using ViT
-#                     with torch.no_grad():
-#                         #outputs = model(slice_tensor)
-#                         slice_features = model.vit(slice_tensor).last_hidden_state.mean(dim=1).squeeze().cpu().numpy()
-#                         features.append(slice_features)
-#                 # Save extracted features
-#                 features = np.array(features)
-#                 np.save(feature_file_path, features)
-#                 features_list.append(features)
-#                 labels_list.append(row['Age'])  # Assuming 'Age' is the target
+                    # Extract features using ViT
+                    with torch.no_grad():
+                        #outputs = model(slice_tensor)
+                        slice_features = model.vit(slice_tensor).last_hidden_state.mean(dim=1).squeeze().cpu().numpy()
+                        features.append(slice_features)
+                # Save extracted features
+                features = np.array(features)
+                np.save(feature_file_path, features)
+                features_list.append(features)
+                labels_list.append(row['Age'])  # Assuming 'Age' is the target
 
-#             except Exception as e:
-#                 print(f"Error processing {filepath}: {e}")
-#         else:
-#             print(f"File not found: {filepath}")
+            except Exception as e:
+                print(f"Error processing {filepath}: {e}")
+        else:
+            print(f"File not found: {filepath}")
 
+
+os.makedirs(f"camcan_storage/CamCAN_features/train_e{vit_train_epochs}/", exist_ok=True)
+for _, row in tqdm(df_camcan.iterrows(), total=len(df_camcan), desc="Processing test images"):
+    filepath = row['filepath']    
+    image_title = f"{row['ImageID']}"
+        # Check if the feature file already exists
+    feature_file_path = f"camcan_storage/CamCAN_features/train_e{vit_train_epochs}/{image_title}_features.npy"
+    # feature_file_path = f"ixi_storage/IXI_features/train_e{vit_train_epochs}/{image_title}_features.npy"
+    if os.path.exists(feature_file_path):
+        # If file exists, load the features from the file
+        features = np.load(feature_file_path)
+        
+        features =  features[len(features) // 2 - roi//2 : len(features) // 2 + roi//2]
+        features_list.append(features)  # Flatten the features and add to the list
+        labels_list.append(row['Age'])  # Add the corresponding age label
+    else:
+        if os.path.exists(filepath):
+            try:
+                # Load the NIfTI image
+                nii_img = nib.load(filepath)
+
+                # Get current orientation and reorient to RAS
+                orig_ornt = io_orientation(nii_img.affine)
+                ras_ornt = axcodes2ornt(("R", "A", "S"))
+                ornt_trans = ornt_transform(orig_ornt, ras_ornt)
+
+                data = nii_img.get_fdata()  # Load image data
+                data = apply_orientation(data, ornt_trans)
+
+                affine = nii_img.affine  # Affine transformation matrix
+
+                # Resample the volume to 160 slices (if required)
+                data = resample_nifti(data, target_slices=160)
+                # Extract features for all slices
+                features = []
+                for slice_idx in range(data.shape[0]):
+                    slice_data = data[slice_idx, :, :]
+                    slice_data = (slice_data - np.min(slice_data)) / (np.max(slice_data) - np.min(slice_data))  # Normalize
+                    
+                    slice_tensor = transform(slice_data).unsqueeze(0).to(device)
+                    
+                    # Extract features using ViT
+                    with torch.no_grad():
+                        #outputs = model(slice_tensor)
+                        slice_features = model.vit(slice_tensor).last_hidden_state.mean(dim=1).squeeze().cpu().numpy()
+                        features.append(slice_features)
+                # Save extracted features
+                features = np.array(features)
+                np.save(feature_file_path, features)
+                features_list.append(features)
+                labels_list.append(row['Age'])  # Assuming 'Age' is the target
+
+            except Exception as e:
+                print(f"Error processing {filepath}: {e}")
+        else:
+            print(f"File not found: {filepath}")
 
 
 batch_size = 1
@@ -942,7 +1009,7 @@ dataset = ADNIDataset(features_list, sex_encoded, age_list)
 train_size = int(0.8 * len(dataset))
 val_size = len(dataset) - train_size
 generator.manual_seed(universal_seed)
-train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
+train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size], generator=generator)
 # Store the indices of the validation dataset
 val_indices = val_dataset.indices
 train_indices = train_dataset.indices
